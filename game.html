@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Aetherfall Chronicles — Play</title>
+  <link rel="stylesheet" href="/src/styles/global.css" />
+  <link rel="stylesheet" href="/src/styles/game.css" />
+</head>
+<body class="game-body">
+  <canvas id="game-canvas"></canvas>
+
+  <div id="game-ui">
+    <header class="hud-top">
+      <div class="hud-bars panel">
+        <div class="bar-row"><label>HP</label><div class="bar"><div id="health-fill" class="fill health"></div></div></div>
+        <div class="bar-row"><label>MP</label><div class="bar"><div id="mana-fill" class="fill mana"></div></div></div>
+        <div class="bar-row xp-row"><label>XP</label><div class="bar"><div id="xp-fill" class="fill xp"></div></div></div>
+      </div>
+      <div class="hud-info panel">
+        <span>Lv. <strong id="player-level">1</strong></span>
+        <span class="gold">⬡ <span id="gold-amount">0</span></span>
+        <span id="biome-name" class="biome">Verdant Expanse</span>
+      </div>
+      <div id="combo-display" class="combo-display"></div>
+    </header>
+
+    <aside class="hud-left">
+      <div class="minimap-wrap panel">
+        <canvas id="minimap" width="168" height="168" class="minimap"></canvas>
+        <div class="minimap-legend">
+          <span><i class="dot player"></i> You</span>
+          <span><i class="dot enemy"></i> Foes</span>
+          <span><i class="dot quest"></i> Goal</span>
+          <span><i class="dot cave"></i> Cave</span>
+        </div>
+      </div>
+      <div id="quest-tracker" class="quest-tracker panel"></div>
+    </aside>
+
+    <aside class="hud-right">
+      <div id="loot-feed" class="loot-feed"></div>
+    </aside>
+
+    <footer class="hud-bottom">
+      <div id="skill-bar" class="skill-bar"></div>
+      <div class="hud-actions">
+        <button id="btn-worldmap" class="hud-btn" title="World Map (M)">🗺</button>
+        <button id="btn-journal" class="hud-btn" title="Journal (Q)">📜</button>
+        <button id="btn-inventory" class="hud-btn" title="Inventory (I)">◆</button>
+        <button id="btn-pause" class="hud-btn" title="Pause (Esc)">☰</button>
+      </div>
+    </footer>
+  </div>
+
+  <div id="touch-controls" class="touch-controls">
+    <div id="touch-joystick" class="touch-joystick"></div>
+    <div class="touch-buttons">
+      <button id="touch-attack" class="touch-btn attack">⚔</button>
+      <button id="touch-dodge" class="touch-btn dodge">↻</button>
+    </div>
+  </div>
+
+  <div id="damage-numbers"></div>
+
+  <div id="inventory-panel" class="inventory-panel panel">
+    <header>
+      <h2 class="fantasy-title">Inventory</h2>
+      <button id="inv-close" class="hud-btn">✕</button>
+    </header>
+    <div id="inventory-grid" class="inventory-grid"></div>
+  </div>
+
+  <div id="pause-menu" class="pause-menu">
+    <div class="pause-panel panel">
+      <h2 class="fantasy-title">Paused</h2>
+      <a href="/index.html" class="btn btn-secondary">Main Menu</a>
+      <a href="/settings.html" class="btn btn-secondary">Settings</a>
+      <button id="btn-resume" class="btn">Resume</button>
+    </div>
+  </div>
+
+  <div id="boss-intro" class="boss-intro">
+    <p class="boss-warning">WORLD BOSS</p>
+    <h2 class="boss-name fantasy-title">—</h2>
+  </div>
+
+  <p id="interact-hint" class="interact-hint"></p>
+  <div id="interact-toast" class="interact-toast"></div>
+  <div id="quest-toast" class="quest-toast"></div>
+
+  <div id="chapter-intro" class="chapter-intro">
+    <p class="chapter-label">STORY</p>
+    <h2 class="chapter-title fantasy-title">—</h2>
+    <p class="chapter-text"></p>
+  </div>
+
+  <div id="journal-panel" class="journal-panel panel">
+    <header>
+      <h2 class="fantasy-title">Mission Journal</h2>
+      <button id="journal-close" class="hud-btn">✕</button>
+    </header>
+    <div id="journal-content" class="journal-content"></div>
+    <p class="journal-credit">Developed by n1ckar</p>
+  </div>
+
+  <div id="worldmap-panel" class="worldmap-panel panel">
+    <header>
+      <h2 class="fantasy-title">World Map</h2>
+      <div class="worldmap-controls">
+        <button id="map-zoom-in" class="hud-btn" title="Zoom In">+</button>
+        <button id="map-zoom-out" class="hud-btn" title="Zoom Out">-</button>
+        <button id="map-center" class="hud-btn" title="Center On Player">◎</button>
+        <button id="map-close" class="hud-btn" title="Close">✕</button>
+      </div>
+    </header>
+    <canvas id="worldmap-canvas" width="900" height="560"></canvas>
+    <p class="worldmap-help">Drag with mouse to pan, scroll to zoom, press M to toggle.</p>
+  </div>
+
+  <div id="dialogue-panel" class="dialogue-panel panel">
+    <span class="dialogue-name fantasy-title"></span>
+    <p class="dialogue-text"></p>
+  </div>
+
+  <div id="tutorial-overlay" class="tutorial-overlay">
+    <div class="tutorial-panel panel">
+      <h2 class="fantasy-title">Welcome, Adventurer</h2>
+      <ul>
+        <li><strong>WASD</strong> — Move</li>
+        <li><strong>Click / J</strong> — Attack</li>
+        <li><strong>Space</strong> — Dodge</li>
+        <li><strong>1–4</strong> — Skills</li>
+        <li><strong>E</strong> — Open chests, talk to NPCs</li>
+        <li>Press <strong>Q</strong> for the full mission journal</li>
+        <li>Follow the <strong>diamond</strong> on the minimap</li>
+        <li>Visit caves, shrines, and mountains</li>
+      </ul>
+      <button id="tutorial-dismiss" class="btn">Begin</button>
+      <p class="tutorial-credit">Developed by n1ckar</p>
+    </div>
+  </div>
+
+  <div id="death-screen" class="death-screen">
+    <h2 class="fantasy-title">You Have Fallen</h2>
+    <p>Respawning...</p>
+  </div>
+
+  <div id="victory-screen" class="victory-screen">
+    <div class="victory-panel panel">
+      <h1 class="fantasy-title">Campaign Complete</h1>
+      <p>You have silenced the Void. The Aether is yours to explore forever.</p>
+      <p class="victory-credit">Developed by n1ckar</p>
+      <a href="/index.html" class="btn">Return to Title</a>
+    </div>
+  </div>
+
+  <footer class="credits-footer"><strong>Developed by n1ckar</strong></footer>
+
+  <script type="module" src="/src/pages/game.ts"></script>
+</body>
+</html>

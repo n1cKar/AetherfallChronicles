@@ -1,0 +1,20 @@
+{
+  "name": "aetherfall-chronicles",
+  "version": "1.0.0",
+  "description": "Aetherfall Chronicles — stylized isometric low-poly fantasy ARPG. Developed by n1ckar",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.172.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.172.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
+  }
+}
