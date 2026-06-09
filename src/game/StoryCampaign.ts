@@ -13,18 +13,18 @@ export interface CampaignQuest {
   title: string;
   storyText: string;
   objectives: CampaignObjective[];
-  rewards: { gold: number; xp: number };
+  rewards: { gold: number; xp: number; skillPoints?: number };
   complete: boolean;
 }
 
 export interface CampaignObjective {
   id: string;
   text: string;
-  type: 'kill' | 'talk' | 'chest' | 'visit_cave' | 'visit_shrine' | 'visit_ruin' | 'elite' | 'level' | 'boss';
+  type: 'kill' | 'talk' | 'chest' | 'visit_cave' | 'visit_shrine' | 'visit_ruin' | 'elite' | 'level' | 'boss'
+    | 'gather' | 'fish' | 'hunt' | 'craft' | 'mine' | 'arena' | 'bless' | 'dig' | 'deliver';
   target: number;
   current: number;
   done: boolean;
-  /** For visit objectives — world position hint */
   marker?: { x: number; z: number };
 }
 
@@ -32,20 +32,26 @@ export const STORY_CHAPTERS: StoryChapter[] = [
   {
     id: 'ch1',
     title: 'Chapter I — Riftfall',
-    intro: 'The sky tore open above Aetherfall. Captain Elara needs every blade at the outpost.',
-    questIds: ['sq_intro', 'sq_clearing', 'sq_supplies'],
+    intro: 'The sky tore open above Aetherfall. Captain Elara needs every blade at the outpost before the void swallows the camp.',
+    questIds: ['sq_intro', 'sq_clearing', 'sq_supplies', 'sq_outpost_life', 'sq_first_craft'],
   },
   {
     id: 'ch2',
     title: 'Chapter II — Emberroot Depths',
-    intro: 'Ancient caves pulse with void energy. Delve deep and break the corruption at its source.',
-    questIds: ['sq_cave', 'sq_elite_hunt', 'sq_grow_strong'],
+    intro: 'Ancient caves pulse with void energy. Miners report crystal veins — and something hungry in the dark.',
+    questIds: ['sq_ruins', 'sq_mine', 'sq_cave', 'sq_arena', 'sq_elite_hunt', 'sq_grow_strong'],
   },
   {
     id: 'ch3',
     title: 'Chapter III — Crown of Aether',
-    intro: 'Only the Astral Shrine can seal the rift — if you can survive the Titan waiting there.',
-    questIds: ['sq_shrine', 'sq_war_path', 'sq_final'],
+    intro: 'The Astral Shrine can seal the rift — but only after the land is cleansed and the Titan falls.',
+    questIds: ['sq_shrine', 'sq_blessing', 'sq_war_path', 'sq_final'],
+  },
+  {
+    id: 'ch4',
+    title: 'Chapter IV — Eternal Aetherfall',
+    intro: 'The rift is sealed, yet Aetherfall endures. Hunt relics, master the arena, and become legend.',
+    questIds: ['sq_dig_relics', 'sq_arena_master', 'sq_life_master', 'sq_endless_hunt'],
   },
 ];
 
@@ -55,7 +61,7 @@ export function buildCampaignQuests(): CampaignQuest[] {
       id: 'sq_intro',
       chapterId: 'ch1',
       title: 'Report to Captain Elara',
-      storyText: 'The outpost commander waits at the camp fire. Hear the battle plan before you march.',
+      storyText: 'The outpost commander waits at the camp fire. The void rift above Crown Peak grows each sunset — hear the plan before you march.',
       objectives: [
         { id: 'o_talk', text: 'Speak with Captain Elara (0/1)', type: 'talk', target: 1, current: 0, done: false, marker: { x: 6, z: 4 } },
       ],
@@ -66,7 +72,7 @@ export function buildCampaignQuests(): CampaignQuest[] {
       id: 'sq_clearing',
       chapterId: 'ch1',
       title: 'Clear the Riftwood',
-      storyText: 'Void-touched beasts swarm the forest. Cut through them to secure the road.',
+      storyText: 'Void-touched beasts swarm the forest. Cut through them so the supply road stays open.',
       objectives: [
         { id: 'o_kill8', text: 'Slay corrupted beasts (0/8)', type: 'kill', target: 8, current: 0, done: false },
       ],
@@ -77,7 +83,7 @@ export function buildCampaignQuests(): CampaignQuest[] {
       id: 'sq_supplies',
       chapterId: 'ch1',
       title: 'Salvage the Caravan',
-      storyText: 'A merchant wagon was overrun. Recover what supplies remain from the chests.',
+      storyText: 'Theron\'s wagon was overrun. Recover what supplies remain — the outpost won\'t last the week without them.',
       objectives: [
         { id: 'o_chest', text: 'Open supply chests (0/2)', type: 'chest', target: 2, current: 0, done: false },
       ],
@@ -85,10 +91,56 @@ export function buildCampaignQuests(): CampaignQuest[] {
       complete: false,
     },
     {
+      id: 'sq_outpost_life',
+      chapterId: 'ch1',
+      title: 'Feed the Outpost',
+      storyText: 'Lina and Bram need meat and timber. A fed camp fights harder when the void howls at night.',
+      objectives: [
+        { id: 'o_gather', text: 'Gather resources (0/5)', type: 'gather', target: 5, current: 0, done: false },
+        { id: 'o_fish', text: 'Catch fish (0/2)', type: 'fish', target: 2, current: 0, done: false, marker: { x: 18, z: -8 } },
+        { id: 'o_hunt', text: 'Hunt wildlife (0/1)', type: 'hunt', target: 1, current: 0, done: false },
+      ],
+      rewards: { gold: 75, xp: 150 },
+      complete: false,
+    },
+    {
+      id: 'sq_first_craft',
+      chapterId: 'ch1',
+      title: 'Garrick\'s Commission',
+      storyText: 'The blacksmith needs proof you can work the bench. Brew a draught or cook a meal for the watch.',
+      objectives: [
+        { id: 'o_craft', text: 'Craft items at the bench (0/2)', type: 'craft', target: 2, current: 0, done: false, marker: { x: 11, z: 2 } },
+      ],
+      rewards: { gold: 40, xp: 90, skillPoints: 1 },
+      complete: false,
+    },
+    {
+      id: 'sq_ruins',
+      chapterId: 'ch2',
+      title: 'Whispers in the Ruins',
+      storyText: 'Scouts found pre-Rift glyphs at the old settlement. Stand among the stones — the journal may unlock a clue.',
+      objectives: [
+        { id: 'o_ruin', text: 'Explore the ancient ruins (0/1)', type: 'visit_ruin', target: 1, current: 0, done: false, marker: { x: -14, z: 16 } },
+      ],
+      rewards: { gold: 70, xp: 140 },
+      complete: false,
+    },
+    {
+      id: 'sq_mine',
+      chapterId: 'ch2',
+      title: 'Crystal Veins',
+      storyText: 'Garrick senses ore near Emberroot. Mine crystal shards — they resonate with the shrine seal.',
+      objectives: [
+        { id: 'o_mine', text: 'Mine ore and crystals (0/4)', type: 'mine', target: 4, current: 0, done: false, marker: { x: 30, z: 12 } },
+      ],
+      rewards: { gold: 85, xp: 170, skillPoints: 1 },
+      complete: false,
+    },
+    {
       id: 'sq_cave',
       chapterId: 'ch2',
       title: 'Emberroot Cave',
-      storyText: 'Scouts marked a glowing cave to the northeast. Investigate the void readings inside.',
+      storyText: 'Void readings spike inside Emberroot. Delve deep — something pulses at the heart of the mountain.',
       objectives: [
         { id: 'o_cave', text: 'Enter Emberroot Cave (0/1)', type: 'visit_cave', target: 1, current: 0, done: false, marker: { x: 28, z: 18 } },
       ],
@@ -96,10 +148,21 @@ export function buildCampaignQuests(): CampaignQuest[] {
       complete: false,
     },
     {
+      id: 'sq_arena',
+      chapterId: 'ch2',
+      title: 'Trial of the Void Arena',
+      storyText: 'Captain Elara erected a fighting ring southeast of camp. Survive three waves to earn the Ascendants\' respect.',
+      objectives: [
+        { id: 'o_arena', text: 'Reach arena wave 3 (0/3)', type: 'arena', target: 3, current: 0, done: false, marker: { x: 22, z: -18 } },
+      ],
+      rewards: { gold: 100, xp: 220, skillPoints: 1 },
+      complete: false,
+    },
+    {
       id: 'sq_elite_hunt',
       chapterId: 'ch2',
       title: 'Cull the Elite',
-      storyText: 'Something powerful guards the depths. Destroy an elite void champion.',
+      storyText: 'A void champion guards the cave mouth. Destroy it before it calls the Titan awake.',
       objectives: [
         { id: 'o_elite', text: 'Defeat an elite enemy (0/1)', type: 'elite', target: 1, current: 0, done: false },
       ],
@@ -110,18 +173,18 @@ export function buildCampaignQuests(): CampaignQuest[] {
       id: 'sq_grow_strong',
       chapterId: 'ch2',
       title: 'Rise of the Ascendant',
-      storyText: 'The shrine will only answer a worthy soul. Grow stronger before the final march.',
+      storyText: 'The shrine will only answer a worthy soul. Train your body and spirit before the final march.',
       objectives: [
-        { id: 'o_lvl', text: 'Reach level 5 (1/5)', type: 'level', target: 5, current: 1, done: false },
+        { id: 'o_lvl', text: 'Reach level 6 (1/6)', type: 'level', target: 6, current: 1, done: false },
       ],
-      rewards: { gold: 100, xp: 200 },
+      rewards: { gold: 100, xp: 200, skillPoints: 2 },
       complete: false,
     },
     {
       id: 'sq_shrine',
       chapterId: 'ch3',
       title: 'Astral Convergence',
-      storyText: 'The Astral Shrine hums with dying starlight. Stand within its circle to awaken the seal.',
+      storyText: 'The Astral Shrine hums with dying starlight. Stand within its circle — the seal stirs for the first time in centuries.',
       objectives: [
         { id: 'o_shrine', text: 'Visit the Astral Shrine (0/1)', type: 'visit_shrine', target: 1, current: 0, done: false, marker: { x: -22, z: 30 } },
       ],
@@ -129,10 +192,21 @@ export function buildCampaignQuests(): CampaignQuest[] {
       complete: false,
     },
     {
+      id: 'sq_blessing',
+      chapterId: 'ch3',
+      title: 'Starlit Blessing',
+      storyText: 'Mora believes a shrine blessing at night will strengthen your spirit. Offer herbs when the moon is high.',
+      objectives: [
+        { id: 'o_bless', text: 'Receive shrine blessing (0/1)', type: 'bless', target: 1, current: 0, done: false, marker: { x: -22, z: 30 } },
+      ],
+      rewards: { gold: 120, xp: 280, skillPoints: 1 },
+      complete: false,
+    },
+    {
       id: 'sq_war_path',
       chapterId: 'ch3',
       title: 'Warpath of Aether',
-      storyText: 'The corruption spreads with every heartbeat. Purge twenty more before the Titan wakes.',
+      storyText: 'Corruption spreads with every heartbeat. Purge twenty more voidspawn before marching on Crown Peak.',
       objectives: [
         { id: 'o_kill20', text: 'Total enemies slain (0/20)', type: 'kill', target: 20, current: 0, done: false },
       ],
@@ -143,11 +217,55 @@ export function buildCampaignQuests(): CampaignQuest[] {
       id: 'sq_final',
       chapterId: 'ch3',
       title: 'Silence the Corrupted Titan',
-      storyText: 'At the mountain crown, the Corrupted Titan feeds the rift. End it — or Aetherfall falls.',
+      storyText: 'At Crown Peak the Corrupted Titan feeds the rift. End it — or every soul in Aetherfall is forfeit.',
       objectives: [
         { id: 'o_boss', text: 'Defeat a world boss (0/1)', type: 'boss', target: 1, current: 0, done: false, marker: { x: -35, z: -28 } },
       ],
-      rewards: { gold: 500, xp: 800 },
+      rewards: { gold: 500, xp: 800, skillPoints: 3 },
+      complete: false,
+    },
+    {
+      id: 'sq_dig_relics',
+      chapterId: 'ch4',
+      title: 'Relics Beneath the Soil',
+      storyText: 'With the rift sealed, treasure hunters mark soft earth around camp. Dig up what the old world buried.',
+      objectives: [
+        { id: 'o_dig', text: 'Excavate buried relics (0/3)', type: 'dig', target: 3, current: 0, done: false },
+      ],
+      rewards: { gold: 200, xp: 400 },
+      complete: false,
+    },
+    {
+      id: 'sq_arena_master',
+      chapterId: 'ch4',
+      title: 'Champion of the Arena',
+      storyText: 'The void arena still hungers. Survive five waves and claim the title of realm champion.',
+      objectives: [
+        { id: 'o_arena5', text: 'Complete arena wave 5 (0/5)', type: 'arena', target: 5, current: 0, done: false, marker: { x: 22, z: -18 } },
+      ],
+      rewards: { gold: 300, xp: 500, skillPoints: 2 },
+      complete: false,
+    },
+    {
+      id: 'sq_life_master',
+      chapterId: 'ch4',
+      title: 'Master of the Land',
+      storyText: 'Aetherfall rewards those who live off the land. Prove mastery in every life skill.',
+      objectives: [
+        { id: 'o_life', text: 'Life activities completed (0/20)', type: 'gather', target: 20, current: 0, done: false },
+      ],
+      rewards: { gold: 250, xp: 450, skillPoints: 2 },
+      complete: false,
+    },
+    {
+      id: 'sq_endless_hunt',
+      chapterId: 'ch4',
+      title: 'Endless Hunt',
+      storyText: 'The void is never truly gone. Keep hunting — the realm depends on blades like yours.',
+      objectives: [
+        { id: 'o_endless', text: 'Slay voidspawn (0/50)', type: 'kill', target: 50, current: 0, done: false },
+      ],
+      rewards: { gold: 400, xp: 600 },
       complete: false,
     },
   ];
@@ -160,6 +278,8 @@ export class StoryCampaign {
   currentChapterIndex = 0;
   totalKills = 0;
   chestsOpened = 0;
+  lifeActions = 0;
+  maxArenaWave = 0;
 
   constructor(private bus: EventBus) {
     this.quests = buildCampaignQuests();
@@ -170,6 +290,16 @@ export class StoryCampaign {
     this.bus.on('npc_talk', (name: unknown) => this.onTalk(name as string));
     this.bus.on('visit_cave', () => this.onVisit('visit_cave'));
     this.bus.on('visit_shrine', () => this.onVisit('visit_shrine'));
+    this.bus.on('visit_ruin', () => this.onVisit('visit_ruin'));
+    this.bus.on('material_gathered', () => this.onLifeAction('gather', 1));
+    this.bus.on('fish_caught', (n: unknown) => this.onLifeAction('fish', typeof n === 'number' ? n : 1));
+    this.bus.on('wildlife_hunted', () => this.onLifeAction('hunt', 1));
+    this.bus.on('item_crafted', () => this.onLifeAction('craft', 1));
+    this.bus.on('ore_mined', (n: unknown) => this.onLifeAction('mine', typeof n === 'number' ? n : 1));
+    this.bus.on('treasure_dug', () => this.onLifeAction('dig', 1));
+    this.bus.on('shrine_blessed', () => this.progressObjective('bless', 1));
+    this.bus.on('arena_wave', (w: unknown) => this.onArenaWave(Number(w)));
+    this.bus.on('arena_complete', (w: unknown) => this.onArenaWave(Number(w)));
   }
 
   getActiveQuest(): CampaignQuest | null {
@@ -217,7 +347,9 @@ export class StoryCampaign {
       for (const qid of ch.questIds) {
         const q = this.quests.find((x) => x.id === qid)!;
         const status = q.complete ? '✓' : q.id === this.activeQuestId ? '▶' : '○';
-        html += `<li class="${q.complete ? 'done' : ''}">${status} <strong>${q.title}</strong><br><span>${q.storyText}</span>`;
+        const locked = !q.complete && q.id !== this.activeQuestId &&
+          this.quests.findIndex((x) => x.id === qid) > this.quests.findIndex((x) => x.id === this.activeQuestId);
+        html += `<li class="${q.complete ? 'done' : ''} ${locked ? 'locked' : ''}">${status} <strong>${q.title}</strong><br><span>${q.storyText}</span>`;
         if (q.id === this.activeQuestId || q.complete) {
           html += '<ul class="journal-objs">';
           for (const o of q.objectives) {
@@ -244,8 +376,7 @@ export class StoryCampaign {
       if (o.done || o.type !== 'kill') continue;
       o.current = Math.min(o.target, o.current + 1);
       o.done = o.current >= o.target;
-      const label = o.text.replace(/\s*\([^)]*\)/, '');
-      o.text = `${label} (${o.current}/${o.target})`;
+      this.updateObjText(o);
     }
     this.checkComplete();
   }
@@ -269,25 +400,55 @@ export class StoryCampaign {
     this.progressObjective(type, 1);
   }
 
+  private onLifeAction(type: CampaignObjective['type'], amount: number): void {
+    this.lifeActions += amount;
+    this.progressObjective(type, amount);
+    const q = this.getActiveQuest();
+    if (q?.id === 'sq_life_master') {
+      for (const o of q.objectives) {
+        if (o.type === 'gather' && !o.done) {
+          o.current = Math.min(o.target, this.lifeActions);
+          o.done = o.current >= o.target;
+          this.updateObjText(o);
+        }
+      }
+      this.checkComplete();
+    }
+  }
+
+  private onArenaWave(wave: number): void {
+    this.maxArenaWave = Math.max(this.maxArenaWave, wave);
+    const q = this.getActiveQuest();
+    if (!q) return;
+    for (const o of q.objectives) {
+      if (o.done || o.type !== 'arena') continue;
+      o.current = Math.max(o.current, Math.min(o.target, wave));
+      o.done = o.current >= o.target;
+      this.updateObjText(o);
+    }
+    this.checkComplete();
+  }
+
   private progressObjective(type: CampaignObjective['type'], value: number): void {
     const q = this.getActiveQuest();
     if (!q) return;
     for (const o of q.objectives) {
       if (o.done || o.type !== type) continue;
-      if (type === 'kill') {
-        o.current = Math.min(o.target, value);
-      } else if (type === 'chest') {
-        o.current = Math.min(o.target, value);
-      } else if (type === 'level') {
-        o.current = Math.min(o.target, value);
+      if (type === 'kill' || type === 'chest' || type === 'level' || type === 'arena') {
+        o.current = Math.min(o.target, type === 'level' ? value : type === 'chest' ? value : o.current + (type === 'arena' ? 0 : value));
+        if (type === 'arena') o.current = Math.min(o.target, this.maxArenaWave);
       } else {
         o.current = Math.min(o.target, o.current + value);
       }
       o.done = o.current >= o.target;
-      const label = o.text.replace(/\s*\([^)]*\)/, '');
-      o.text = `${label} (${o.current}/${o.target})`;
+      this.updateObjText(o);
     }
     this.checkComplete();
+  }
+
+  private updateObjText(o: CampaignObjective): void {
+    const label = o.text.replace(/\s*\([^)]*\)/, '');
+    o.text = `${label} (${o.current}/${o.target})`;
   }
 
   private checkComplete(): void {

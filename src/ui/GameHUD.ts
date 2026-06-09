@@ -4,6 +4,12 @@ import { RARITY_COLORS } from '../config/constants';
 import type { ItemInstance } from '../loot/ItemGenerator';
 import type { BiomeDefinition } from '../world/BiomeConfig';
 import type { MinimapSnapshot } from '../world/WorldManager';
+import type { LifeSkillsManager } from '../life/LifeSkillsManager';
+import type { TimePeriod } from '../world/DayNightCycle';
+import { RECIPES } from '../life/CraftingSystem';
+import type { ChatMessage } from '../network/NetworkClient';
+import { ATTRIBUTE_UPGRADES, PERK_TREE, type UpgradeSystem } from '../systems/UpgradeSystem';
+import { ObjectiveCompass } from './ObjectiveCompass';
 
 const POI_COLORS: Record<string, string> = {
   player: '#f0c96e',
@@ -15,6 +21,9 @@ const POI_COLORS: Record<string, string> = {
   mountain: '#b8c8d8',
   ruin: '#9a9aa8',
   quest: '#00ffcc',
+  fish: '#4a9acc',
+  gather: '#5aba6a',
+  wildlife: '#c49a6a',
 };
 
 export class GameHUD {
@@ -38,6 +47,27 @@ export class GameHUD {
   private inventoryOpen = false;
   private journalOpen = false;
   private worldMapOpen = false;
+  private lifePanelOpen = false;
+  private lifePanel: HTMLElement;
+  private materialsStrip: HTMLElement;
+  private timeClock: HTMLElement;
+  private activityBar: HTMLElement;
+  private activityFill: HTMLElement;
+  private activityLabel: HTMLElement;
+  private buffStrip: HTMLElement;
+  private upgradePanel: HTMLElement;
+  private upgradePanelOpen = false;
+  private onCraft?: (recipeId: string) => void;
+  private onUpgrade?: (type: 'attr' | 'perk', id: string) => void;
+  private onChatSend?: (message: string) => void;
+  private chatOpen = false;
+  private chatLog: HTMLElement;
+  private chatPanel: HTMLElement;
+  private chatInput: HTMLInputElement;
+  private onlineStatus: HTMLElement;
+  private heroName: HTMLElement;
+  private playerListUl: HTMLElement;
+  private compass: ObjectiveCompass;
   private minimapSize = 168;
   private worldMapCenter: { x: number; z: number } | null = null;
   private worldMapZoom = 1;
@@ -62,6 +92,21 @@ export class GameHUD {
     this.worldMapPanel = document.getElementById('worldmap-panel')!;
     this.worldMapCanvas = document.getElementById('worldmap-canvas') as HTMLCanvasElement;
     this.worldMapCtx = this.worldMapCanvas.getContext('2d')!;
+    this.lifePanel = document.getElementById('life-panel')!;
+    this.materialsStrip = document.getElementById('materials-strip')!;
+    this.timeClock = document.getElementById('time-clock')!;
+    this.activityBar = document.getElementById('activity-bar')!;
+    this.activityFill = document.getElementById('activity-fill')!;
+    this.activityLabel = document.getElementById('activity-label')!;
+    this.buffStrip = document.getElementById('buff-strip')!;
+    this.upgradePanel = document.getElementById('upgrade-panel')!;
+    this.chatLog = document.getElementById('chat-log')!;
+    this.chatPanel = document.getElementById('chat-panel')!;
+    this.chatInput = document.getElementById('chat-input') as HTMLInputElement;
+    this.onlineStatus = document.getElementById('online-status')!;
+    this.heroName = document.getElementById('hero-name')!;
+    this.playerListUl = document.getElementById('player-list-ul')!;
+    this.compass = new ObjectiveCompass();
 
     const dpr = window.devicePixelRatio || 1;
     this.minimapSize = 168;
@@ -80,11 +125,97 @@ export class GameHUD {
     document.getElementById('map-zoom-in')?.addEventListener('click', () => this.worldMapZoom = Math.min(3, this.worldMapZoom * 1.2));
     document.getElementById('map-zoom-out')?.addEventListener('click', () => this.worldMapZoom = Math.max(0.6, this.worldMapZoom / 1.2));
     document.getElementById('map-center')?.addEventListener('click', () => this.worldMapCenter = null);
+    document.getElementById('btn-life')?.addEventListener('click', () => this.toggleLifePanel());
+    document.getElementById('life-close')?.addEventListener('click', () => this.toggleLifePanel(false));
+    document.getElementById('btn-upgrades')?.addEventListener('click', () => this.toggleUpgradePanel());
+    document.getElementById('upgrade-close')?.addEventListener('click', () => this.toggleUpgradePanel(false));
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyQ') this.toggleJournal();
       if (e.code === 'KeyM') this.toggleWorldMap();
+      if (e.code === 'KeyC') this.toggleLifePanel();
+      if (e.code === 'KeyU') this.toggleUpgradePanel();
     });
     this.setupWorldMapMouse();
+    this.setupChat();
+  }
+
+  private setupChat(): void {
+    document.getElementById('chat-form')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = this.chatInput.value.trim();
+      if (text) {
+        this.onChatSend?.(text);
+        this.chatInput.value = '';
+      }
+      this.toggleChat(false);
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Enter' && !this.isTypingInUI()) {
+        e.preventDefault();
+        this.toggleChat(true);
+      }
+      if (e.code === 'Escape' && this.chatOpen) {
+        this.toggleChat(false);
+      }
+    });
+  }
+
+  isTypingInUI(): boolean {
+    const tag = document.activeElement?.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA';
+  }
+
+  setChatHandler(handler: (message: string) => void): void {
+    this.onChatSend = handler;
+  }
+
+  setHeroName(name: string, online: boolean): void {
+    this.heroName.textContent = online ? `${name} · Online` : name;
+  }
+
+  setOnlineStatus(online: boolean, count: number, label?: string): void {
+    if (online) {
+      this.onlineStatus.textContent = label ?? `● ${count} online`;
+      this.onlineStatus.className = 'online-status mmo';
+    } else {
+      this.onlineStatus.textContent = 'Solo';
+      this.onlineStatus.className = 'online-status solo';
+    }
+  }
+
+  setPlayerList(names: string[], localName: string): void {
+    this.playerListUl.innerHTML = names.map((n) =>
+      `<li class="${n === localName ? 'you' : ''}">${n === localName ? `${n} (you)` : n}</li>`,
+    ).join('');
+  }
+
+  addChatMessage(msg: ChatMessage): void {
+    const line = document.createElement('div');
+    line.className = `chat-line${msg.system ? ' system' : ''}`;
+    if (msg.system) {
+      line.textContent = msg.message;
+    } else {
+      line.innerHTML = `<strong>${msg.from}:</strong> ${escapeHtml(msg.message)}`;
+    }
+    this.chatLog.appendChild(line);
+    this.chatLog.scrollTop = this.chatLog.scrollHeight;
+    while (this.chatLog.children.length > 80) {
+      this.chatLog.firstChild?.remove();
+    }
+  }
+
+  toggleChat(force?: boolean): void {
+    this.chatOpen = force ?? !this.chatOpen;
+    this.chatPanel.classList.toggle('open', this.chatOpen);
+    if (this.chatOpen) {
+      setTimeout(() => this.chatInput.focus(), 50);
+    } else {
+      this.chatInput.blur();
+    }
+  }
+
+  isChatOpen(): boolean {
+    return this.chatOpen;
   }
 
   initSkills(classId: string): void {
@@ -184,7 +315,7 @@ export class GameHUD {
     ctx.arc(w / 2, h / 2, 52 * scale, 0, Math.PI * 2);
     ctx.stroke();
 
-    const drawOrder = ['ruin', 'mountain', 'cave', 'shrine', 'chest', 'npc', 'enemy', 'quest', 'player'];
+    const drawOrder = ['ruin', 'mountain', 'cave', 'shrine', 'fish', 'gather', 'wildlife', 'chest', 'npc', 'enemy', 'quest', 'player'];
     for (const type of drawOrder) {
       for (const poi of map.pois) {
         if (poi.type !== type) continue;
@@ -418,4 +549,160 @@ export class GameHUD {
     this.deathShown = false;
     document.getElementById('death-screen')?.classList.remove('open');
   }
+
+  setCraftHandler(handler: (recipeId: string) => void): void {
+    this.onCraft = handler;
+  }
+
+  setUpgradeHandler(handler: (type: 'attr' | 'perk', id: string) => void): void {
+    this.onUpgrade = handler;
+  }
+
+  toggleUpgradePanel(force?: boolean): void {
+    this.upgradePanelOpen = force ?? !this.upgradePanelOpen;
+    this.upgradePanel.classList.toggle('open', this.upgradePanelOpen);
+  }
+
+  isUpgradePanelOpen(): boolean {
+    return this.upgradePanelOpen;
+  }
+
+  renderUpgradePanel(player: Player, upgrades: UpgradeSystem): void {
+    this.lastUpgradePlayer = player;
+    this.lastUpgradeSystem = upgrades;
+    const spEl = document.getElementById('skill-points-display');
+    if (spEl) spEl.textContent = `${player.skillPoints} SP`;
+
+    const attrEl = document.getElementById('attr-upgrades')!;
+    attrEl.innerHTML = (Object.keys(ATTRIBUTE_UPGRADES) as Array<keyof typeof ATTRIBUTE_UPGRADES>).map((id) => {
+      const def = ATTRIBUTE_UPGRADES[id];
+      const val = player.attributes[id];
+      const can = player.skillPoints > 0;
+      return `<button class="attr-btn" data-attr="${id}" ${can ? '' : 'disabled'}>
+        <strong>${def.label}</strong> <em>${val}</em>
+        <span>${def.effect}</span>
+      </button>`;
+    }).join('');
+    attrEl.querySelectorAll('[data-attr]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = (btn as HTMLElement).dataset.attr;
+        if (id) this.onUpgrade?.('attr', id);
+      });
+    });
+
+    const perkEl = document.getElementById('perk-upgrades')!;
+    perkEl.innerHTML = PERK_TREE.map((p) => {
+      const owned = upgrades.hasPerk(p.id);
+      const can = upgrades.canBuyPerk(p.id, player.skillPoints, player.level);
+      return `<button class="perk-btn ${owned ? 'owned' : ''}" data-perk="${p.id}" ${owned || !can ? 'disabled' : ''}>
+        <strong>${p.name}</strong> <em>${p.cost} SP</em>
+        <span>${p.description}</span>
+      </button>`;
+    }).join('');
+    perkEl.querySelectorAll('[data-perk]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = (btn as HTMLElement).dataset.perk;
+        if (id) this.onUpgrade?.('perk', id);
+      });
+    });
+
+    const lifeEl = document.getElementById('life-mastery')!;
+    lifeEl.innerHTML = ['gather', 'fish', 'hunt', 'craft', 'mine'].map((sk) =>
+      `<div class="mastery-row"><span>${sk}</span><strong>Lv.${upgrades.getLifeLevel(sk)}</strong></div>`,
+    ).join('');
+  }
+
+  toggleLifePanel(force?: boolean): void {
+    this.lifePanelOpen = force ?? !this.lifePanelOpen;
+    this.lifePanel.classList.toggle('open', this.lifePanelOpen);
+  }
+
+  isLifePanelOpen(): boolean {
+    return this.lifePanelOpen;
+  }
+
+  updateTimeDisplay(clock: string, period: TimePeriod): void {
+    const icons: Record<TimePeriod, string> = {
+      dawn: '🌅', day: '☀', dusk: '🌇', night: '🌙',
+    };
+    this.timeClock.textContent = `${icons[period]} ${clock}`;
+    this.timeClock.className = `time-clock period-${period}`;
+  }
+
+  updateLifeHud(
+    life: LifeSkillsManager,
+    activityPct: number,
+    activityLabel: string,
+    buffs: string[],
+  ): void {
+    const mats = life.getMaterialList();
+    this.materialsStrip.innerHTML = mats.length
+      ? mats.slice(0, 8).map((m) =>
+        `<span class="mat-chip" title="${m.def.name}">${m.def.icon} ${m.count}</span>`,
+      ).join('')
+      : '<span class="mat-empty">Gather with F near nodes</span>';
+
+    this.activityBar.classList.toggle('active', activityPct > 0);
+    this.activityFill.style.width = `${activityPct * 100}%`;
+    if (activityLabel) this.activityLabel.textContent = activityLabel;
+
+    this.buffStrip.innerHTML = buffs.map((b) => `<span class="buff-chip">${b}</span>`).join('');
+
+    if (this.lifePanelOpen) this.renderLifePanel(life);
+    if (this.upgradePanelOpen && this.lastUpgradePlayer && this.lastUpgradeSystem) {
+      this.renderUpgradePanel(this.lastUpgradePlayer, this.lastUpgradeSystem);
+    }
+  }
+
+  private lastUpgradePlayer: Player | null = null;
+  private lastUpgradeSystem: UpgradeSystem | null = null;
+
+  renderLifePanel(life: LifeSkillsManager): void {
+    const matEl = document.getElementById('life-materials')!;
+    const recEl = document.getElementById('life-recipes')!;
+    const mats = life.getMaterialList();
+    matEl.innerHTML = mats.length
+      ? `<div class="life-mat-grid">${mats.map((m) =>
+        `<div class="life-mat"><span>${m.def.icon}</span><strong>${m.def.name}</strong><em>×${m.count}</em></div>`,
+      ).join('')}</div>`
+      : '<p class="life-empty">No materials yet — fish, gather, and hunt around camp.</p>';
+
+    recEl.innerHTML = RECIPES.map((r) => {
+      const can = life.crafting.canCraft(life.materials, r);
+      const req = Object.entries(r.requires)
+        .map(([id, n]) => `${n} ${id.replace('_', ' ')}`)
+        .join(', ');
+      return `<button class="recipe-btn ${can ? '' : 'disabled'}" data-recipe="${r.id}" ${can ? '' : 'disabled'}>
+        <strong>${r.name}</strong>
+        <span>${r.description}</span>
+        <em>Needs: ${req}</em>
+      </button>`;
+    }).join('');
+
+    recEl.querySelectorAll('[data-recipe]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = (btn as HTMLElement).dataset.recipe;
+        if (id) this.onCraft?.(id);
+      });
+    });
+  }
+
+  updateObjectiveCompass(
+    px: number,
+    pz: number,
+    camYaw: number,
+    target: { x: number; z: number } | null,
+    questTitle?: string,
+  ): void {
+    this.compass.update(px, pz, camYaw, target, questTitle);
+  }
+
+  setActionHint(base: string, lifeHint: string): void {
+    const text = lifeHint || base;
+    this.setInteractHint(text);
+  }
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

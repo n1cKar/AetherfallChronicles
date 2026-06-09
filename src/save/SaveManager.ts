@@ -2,6 +2,8 @@
 
 import type { ClassId } from '../config/constants';
 import type { ItemInstance } from '../loot/ItemGenerator';
+import type { LifeSkillsSave } from '../life/LifeSkillsManager';
+import type { UpgradeSave } from '../systems/UpgradeSystem';
 
 export interface PlayerSaveData {
   name: string;
@@ -20,6 +22,9 @@ export interface PlayerSaveData {
   playTimeSeconds: number;
   achievements: string[];
   cosmetics: { title?: string; mount?: string; pet?: string };
+  lifeSkills?: LifeSkillsSave;
+  upgrades?: UpgradeSave;
+  dayTime?: number;
 }
 
 export interface GameSettings {
@@ -34,6 +39,7 @@ export interface GameSettings {
   showDamageNumbers: boolean;
   autoLoot: boolean;
   controllerSensitivity: number;
+  serverUrl?: string;
 }
 
 const SAVE_KEY = 'aetherfall_save';
@@ -51,6 +57,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   showDamageNumbers: true,
   autoLoot: true,
   controllerSensitivity: 1,
+  serverUrl: 'ws://localhost:2567',
 };
 
 export class SaveManager {

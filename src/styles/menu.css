@@ -139,6 +139,81 @@
 .class-card .title { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.75rem; }
 .class-card p { font-size: 0.85rem; line-height: 1.5; }
 
+.join-panel {
+  max-width: 520px;
+  margin: 0 auto 1.25rem;
+  padding: 1rem 1.25rem;
+  text-align: left;
+}
+
+.join-label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-bottom: 0.35rem;
+}
+
+.join-input {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background: rgba(0,0,0,0.4);
+  border: 1px solid rgba(212,168,75,0.35);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.mode-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.server-row {
+  margin-top: 0.5rem;
+}
+
+.server-row.hidden {
+  display: none;
+}
+
+.join-hint {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-top: 0.25rem;
+}
+
+.join-hint code {
+  color: var(--gold);
+}
+
+.logo-ring.pulse {
+  animation: logo-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes logo-pulse {
+  50% { box-shadow: 0 0 40px rgba(212, 168, 75, 0.5); transform: scale(1.03); }
+}
+
+.main-menu.reveal {
+  animation: menu-reveal 0.6s ease-out;
+}
+
+@keyframes menu-reveal {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .char-actions, .settings-actions {
   display: flex;
   gap: 1rem;

@@ -56,25 +56,39 @@ export class PostProcessing {
         uniform float fogStrength;
         varying vec2 vUv;
 
-        void main() {
-          vec4 col = texture2D(tDiffuse, vUv);
-          vec2 texel = 1.0 / resolution;
-          vec3 bloom = vec3(0.0);
-          bloom += texture2D(tDiffuse, vUv + texel * vec2(1.0, 0.0)).rgb;
-          bloom += texture2D(tDiffuse, vUv + texel * vec2(-1.0, 0.0)).rgb;
-          bloom += texture2D(tDiffuse, vUv + texel * vec2(0.0, 1.0)).rgb;
-          bloom += texture2D(tDiffuse, vUv + texel * vec2(0.0, -1.0)).rgb;
-          bloom *= 0.25;
-          float bright = max(max(bloom.r, bloom.g), bloom.b);
-          col.rgb += bloom * bloomStrength * smoothstep(0.55, 1.0, bright);
+        float filmGrain(vec2 uv, float t) {
+          return fract(sin(dot(uv * resolution + t, vec2(12.9898, 78.233))) * 43758.5453) * 2.0 - 1.0;
+        }
 
-          vec2 uv = vUv * 2.0 - 1.0;
-          float vig = 1.0 - dot(uv, uv) * vignette;
+        void main() {
+          vec2 uv = vUv;
+          vec2 texel = 1.0 / resolution;
+          float ca = 0.0012;
+          vec4 col;
+          col.r = texture2D(tDiffuse, uv + texel * vec2(ca, 0.0)).r;
+          col.g = texture2D(tDiffuse, uv).g;
+          col.b = texture2D(tDiffuse, uv - texel * vec2(ca, 0.0)).b;
+          col.a = 1.0;
+
+          vec3 bloom = vec3(0.0);
+          for (float i = -2.0; i <= 2.0; i += 1.0) {
+            for (float j = -2.0; j <= 2.0; j += 1.0) {
+              bloom += texture2D(tDiffuse, uv + texel * vec2(i, j) * 1.5).rgb;
+            }
+          }
+          bloom *= 0.04;
+          float lum = dot(bloom, vec3(0.299, 0.587, 0.114));
+          col.rgb += bloom * bloomStrength * smoothstep(0.45, 1.0, lum);
+
+          vec2 vigUv = uv * 2.0 - 1.0;
+          float vig = 1.0 - dot(vigUv, vigUv) * vignette;
           col.rgb *= vig;
 
-          col.rgb = mix(col.rgb, col.rgb * vec3(1.05, 1.0, 0.92), 0.12);
-          col.rgb = pow(col.rgb, vec3(0.95));
+          col.rgb = col.rgb / (col.rgb + vec3(1.0));
+          col.rgb = pow(col.rgb, vec3(0.92));
+          col.rgb = mix(col.rgb, col.rgb * vec3(1.08, 1.02, 0.94), 0.18);
           col.rgb = mix(col.rgb, fogColor, fogStrength * (1.0 - vig));
+          col.rgb += filmGrain(uv, time) * 0.025;
 
           gl_FragColor = col;
         }
@@ -97,7 +111,8 @@ export class PostProcessing {
 
   applySettings(settings: GameSettings, scale = 1): void {
     const mat = this.quad.material as THREE.ShaderMaterial;
-    mat.uniforms.bloomStrength.value = settings.bloom ? 0.28 : 0.04;
+    mat.uniforms.bloomStrength.value = settings.bloom ? 0.38 : 0.06;
+    mat.uniforms.vignette.value = settings.graphicsQuality === 'ultra' ? 0.28 : 0.22;
     this.enabled = settings.graphicsQuality !== 'low' && settings.bloom;
     this.renderScale = scale;
   }

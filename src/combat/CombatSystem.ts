@@ -11,6 +11,9 @@ import type { EventBus } from '../utils/EventBus';
 export class CombatSystem {
   hitStop = 0;
   screenShake = 0;
+  killStreak = 0;
+  killStreakTimer = 0;
+  lastCrit = false;
 
   constructor(
     private bus: EventBus,
@@ -24,6 +27,10 @@ export class CombatSystem {
     }
     if (this.screenShake > 0) {
       this.screenShake = Math.max(0, this.screenShake - dt * 4);
+    }
+    if (this.killStreakTimer > 0) {
+      this.killStreakTimer -= dt;
+      if (this.killStreakTimer <= 0) this.killStreak = 0;
     }
   }
 
@@ -52,18 +59,27 @@ export class CombatSystem {
       const dist = Math.sqrt(dx * dx + dz * dz);
       if (dist > range) continue;
 
-      const dmg = player.damage * mult * (0.9 + Math.random() * 0.2);
+      const crit = Math.random() < 0.12 + player.combo * 0.01;
+      let dmg = player.damage * mult * (0.9 + Math.random() * 0.2);
+      if (crit) dmg *= 2.1;
+      this.lastCrit = crit;
       const kbX = dx / (dist || 1);
       const kbZ = dz / (dist || 1);
       const actual = enemy.takeDamage(dmg, kbX, kbZ);
       totalDamage += actual;
       hits.push(enemy);
 
-      this.particles.emitHit(enemy.position, enemy.tier === 'boss' ? 0xff8844 : 0xffcc66);
-      this.damageNumbers.spawn(enemy.position, actual, enemy.tier !== 'normal');
-      this.applyHitFeel(enemy.tier === 'boss' ? HIT_STOP_HEAVY : HIT_STOP_LIGHT, enemy.tier === 'boss' ? 0.4 : 0.15);
+      this.particles.emitHit(enemy.position, crit ? 0xffee44 : enemy.tier === 'boss' ? 0xff8844 : 0xffcc66);
+      if (crit) this.particles.emitMagic(enemy.position, 0xffdd66);
+      this.damageNumbers.spawn(enemy.position, actual, crit || enemy.tier !== 'normal');
+      this.applyHitFeel(
+        crit ? HIT_STOP_HEAVY * 0.7 : enemy.tier === 'boss' ? HIT_STOP_HEAVY : HIT_STOP_LIGHT,
+        crit ? 0.35 : enemy.tier === 'boss' ? 0.4 : 0.15,
+      );
 
       if (!enemy.alive) {
+        this.killStreak++;
+        this.killStreakTimer = 4;
         if (player.gainXp(enemy.xpReward)) {
           this.bus.emit('level_up');
         }
@@ -78,7 +94,7 @@ export class CombatSystem {
     }
 
     if (hits.length > 0) {
-      this.bus.emit('combat_hit', hits.length, totalDamage);
+      this.bus.emit('combat_hit', hits.length, totalDamage, this.lastCrit);
     }
 
     return { hits, totalDamage };

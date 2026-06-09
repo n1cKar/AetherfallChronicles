@@ -149,6 +149,22 @@ export class AudioManager {
     });
   }
 
+  playCrit(): void {
+    this.playTone(220, 0.06, 'sawtooth');
+    setTimeout(() => this.playTone(440, 0.1, 'square'), 40);
+  }
+
+  playDodge(): void {
+    this.playTone(320, 0.05, 'triangle');
+    setTimeout(() => this.playTone(180, 0.08, 'sine'), 30);
+  }
+
+  playQuestComplete(): void {
+    [523, 659, 784].forEach((f, i) => {
+      setTimeout(() => this.playTone(f, 0.25, 'sine'), i * 120);
+    });
+  }
+
   private playTone(freq: number, duration: number, type: OscillatorType): void {
     if (!this.ctx || !this.sfxGain) return;
     const osc = this.ctx.createOscillator();

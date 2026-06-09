@@ -12,7 +12,8 @@ import {
   animateHumanoid,
   type HumanoidRig,
 } from '../render/HumanCharacter';
-import { PhysicsSystem, type PhysicsBody } from '../physics/PhysicsSystem';
+import { PhysicsSystem, type PhysicsBody, type PhysicsModifiers } from '../physics/PhysicsSystem';
+import type { UpgradeSystem } from '../systems/UpgradeSystem';
 import { clamp } from '../utils/math';
 import type { ItemInstance } from '../loot/ItemGenerator';
 
@@ -45,10 +46,13 @@ export class Player {
   attributes = { str: 10, dex: 10, int: 10, vit: 10 };
   skillPoints = 0;
   body: PhysicsBody;
+  upgrades: UpgradeSystem | null = null;
+  displayName = 'Adventurer';
 
   private animPhase = 0;
   private moveBlend = 0;
   private physics = new PhysicsSystem();
+  private vaultCooldown = 0;
 
   constructor(classId: ClassId) {
     this.classId = classId;
@@ -64,11 +68,22 @@ export class Player {
   }
 
   get damage(): number {
-    return 8 + this.attributes.str * 1.2 + this.level * 2 + this.combo * 0.5;
+    const buff = this.upgrades?.getDamageMult() ?? 1;
+    return (8 + this.attributes.str * 1.2 + this.level * 2 + this.combo * 0.5) * buff;
   }
 
   get defense(): number {
-    return this.attributes.vit * 0.8 + this.level;
+    const dr = this.upgrades?.getDamageReduction() ?? 0;
+    return (this.attributes.vit * 0.8 + this.level) * (1 + dr);
+  }
+
+  getPhysicsMods(moving: boolean): PhysicsModifiers {
+    return {
+      airControl: this.upgrades?.hasPerk('air_control') ? 0.85 : 0.55,
+      slopeLimit: 0.78,
+      stepHeight: 0.5,
+      speedMult: 1 + (this.upgrades?.getSpeedBonus(moving) ?? 0) + (this.upgrades?.getSpeedMult() ?? 1) - 1,
+    };
   }
 
   setPhysicsSubSteps(steps: number): void {
@@ -81,6 +96,9 @@ export class Player {
 
   update(dt: number, worldHeight: (x: number, z: number) => number): void {
     if (this.dodgeCooldown > 0) this.dodgeCooldown -= dt;
+    if (this.vaultCooldown > 0) this.vaultCooldown -= dt;
+    const regen = this.upgrades?.update(dt);
+    if (regen?.regen) this.heal(regen.regen);
     if (this.dodgeTimer > 0) {
       this.dodgeTimer -= dt;
       if (this.dodgeTimer <= 0 && this.state === 'dodge') this.state = 'idle';
@@ -125,8 +143,16 @@ export class Player {
   ): void {
     if (this.state === 'dodge' || this.state === 'dead') return;
 
-    const speed = sprint ? PLAYER_BASE_SPEED * 1.35 : PLAYER_BASE_SPEED;
-    const { moving } = this.physics.move(this.body, dirX, dirZ, speed, dt, worldHeight, sprint);
+    const speedMult = this.upgrades?.getSpeedMult() ?? 1;
+    const speed = (sprint ? PLAYER_BASE_SPEED * 1.35 : PLAYER_BASE_SPEED) * speedMult;
+    const movingSoon = Math.hypot(dirX, dirZ) > 0.1;
+    const { moving, fallDamage } = this.physics.move(
+      this.body, dirX, dirZ, speed, dt, worldHeight, sprint, this.getPhysicsMods(movingSoon),
+    );
+    if (fallDamage > 0) {
+      const mult = this.upgrades?.getFallDamageMult() ?? 1;
+      this.takeDamage(Math.floor(fallDamage * mult));
+    }
     this.position.copy(this.body.position);
     this.velocity.copy(this.body.velocity);
 
@@ -136,6 +162,42 @@ export class Player {
     } else if (this.state === 'move') {
       this.state = 'idle';
     }
+  }
+
+  vaultLeap(): boolean {
+    if (!this.upgrades?.hasPerk('vault_leap') || this.vaultCooldown > 0 || this.state === 'dead') return false;
+    if (this.physics.tryJump(this.body, 1.15)) {
+      this.vaultCooldown = 0.55;
+      this.state = 'dodge';
+      this.invulnerable = true;
+      setTimeout(() => {
+        if (this.state === 'dodge') this.state = 'idle';
+        this.invulnerable = false;
+      }, 200);
+      this.position.copy(this.body.position);
+      return true;
+    }
+    return false;
+  }
+
+  spendSkillPoint(): boolean {
+    if (this.skillPoints <= 0) return false;
+    this.skillPoints--;
+    return true;
+  }
+
+  upgradeAttribute(attr: keyof typeof this.attributes): boolean {
+    if (!this.spendSkillPoint()) return false;
+    this.attributes[attr]++;
+    if (attr === 'vit') {
+      this.maxHealth += 10;
+      this.health = Math.min(this.health + 10, this.maxHealth);
+    }
+    if (attr === 'int') {
+      this.maxMana += 4;
+      this.mana = Math.min(this.mana + 4, this.maxMana);
+    }
+    return true;
   }
 
   dodge(): boolean {
@@ -178,7 +240,7 @@ export class Player {
 
   takeDamage(amount: number, fromX?: number, fromZ?: number): number {
     if (this.invulnerable || this.state === 'dead') return 0;
-    const actual = Math.max(1, amount - this.defense * 0.3);
+    const actual = Math.max(1, amount - this.defense * 0.35);
     this.health -= actual;
     this.state = 'hurt';
     if (fromX !== undefined && fromZ !== undefined) {
@@ -210,7 +272,7 @@ export class Player {
       this.health = this.maxHealth;
       this.maxMana += 8;
       this.mana = this.maxMana;
-      this.skillPoints += 1;
+      this.skillPoints += 2;
       return true;
     }
     return false;

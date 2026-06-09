@@ -69,6 +69,24 @@ export class ParticleSystem {
     }
   }
 
+  emitFootstep(position: THREE.Vector3): void {
+    const points = this.pool.acquire();
+    (points.material as THREE.PointsMaterial).color.setHex(0x8a7a60);
+    (points.material as THREE.PointsMaterial).size = 0.12;
+    points.position.copy(position);
+    points.position.y += 0.1;
+    points.visible = true;
+    if (!points.parent) this.scene.add(points);
+    this.bursts.push({ mesh: points, life: 0.25, maxLife: 0.25 });
+  }
+
+  emitLevelUp(position: THREE.Vector3): void {
+    for (let i = 0; i < 8; i++) {
+      setTimeout(() => this.emitHit(position, 0xffd700), i * 40);
+    }
+    this.emitMagic(position, 0xffee88);
+  }
+
   update(dt: number): void {
     for (let i = this.bursts.length - 1; i >= 0; i--) {
       const b = this.bursts[i];

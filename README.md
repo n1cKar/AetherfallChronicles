@@ -17,7 +17,8 @@ An original browser-based 2.5D isometric low-poly fantasy Action RPG built with 
 - **Immersion** — day/night cycle, dynamic weather, ambient audio
 - **Polish** — post-processing, stylized PBR-ish materials, isometric camera
 - **Persistence** — local save, settings, cloud-save-ready API stubs
-- **Multiplayer-ready** — network manager stub for future WebSocket integration
+- **Online realm (MMO-lite)** — WebSocket server, shared world seed, see other players with display names, realm chat
+- **Life skills** — fishing, hunting, gathering, crafting
 
 ## Pages
 
@@ -41,8 +42,13 @@ Every screen displays **Developed by n1ckar**.
 | Left click / J | Attack |
 | Space / K | Dodge |
 | 1–4 | Skills |
-| E | Interact |
+| E | Interact / trade with merchants |
+| F | Fish / gather |
+| C | Crafting panel |
+| Enter | Realm chat (online) |
 | I | Inventory |
+| M | World map |
+| Q | Journal |
 | Esc | Pause |
 | Gamepad | Supported |
 
@@ -53,7 +59,20 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173/index.html`
+This starts **both** the Vite client and the game server (`ws://localhost:2567`).
+
+Open `http://localhost:5173/index.html` → **Enter World** → pick a **display name** → choose **Online Realm (MMO)** → select class → play.
+
+### Hosting multiplayer for friends
+
+1. Run the server on a machine with a public IP or LAN IP:
+   ```bash
+   npm run server
+   ```
+2. Open port **2567** (TCP) on your firewall.
+3. Friends set **Realm Server** to `ws://YOUR_IP:2567` on character select (or in Settings).
+
+Everyone shares the same procedural world seed and sees each other in real time.
 
 ## Build
 

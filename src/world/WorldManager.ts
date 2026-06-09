@@ -16,9 +16,29 @@ const NPC_DIALOGUE_ELERA = [
   'The rift tears wider each night. Clear the woods and recover our supplies.',
   'When you are ready, seek Emberroot Cave to the northeast — that is where the void festers.',
 ];
+const NPC_DIALOGUE_THERON = [
+  'Fresh stock from the caravan — well, what survived. I buy herbs, fish, and ore.',
+  'Press C to craft goods, then sell extras to me with E.',
+];
+const NPC_DIALOGUE_GARRICK = [
+  'My forge is cold until we get ore. Smelt ingots at the camp workbench — key C.',
+];
+const NPC_DIALOGUE_LINA = [
+  'Cast your line at the blue ponds east of camp. Night fishing is slower but rarer catches glow.',
+  'Craft bait from herbs and meat — it helps tremendously.',
+];
+const NPC_DIALOGUE_MORA = [
+  'Sunleaf grows on the ring around camp. Gather with F, brew potions with C.',
+];
+const NPC_DIALOGUE_BRAM = [
+  'Deer and boar roam the wilds. Strike them when close — hides and meat feed the outpost.',
+];
+const NPC_DIALOGUE_SELA = [
+  'Rest by my fire for ten gold — I will patch your wounds.',
+];
 
 export interface MapPOI {
-  type: 'enemy' | 'chest' | 'npc' | 'shrine' | 'cave' | 'mountain' | 'ruin' | 'quest' | 'player';
+  type: 'enemy' | 'chest' | 'npc' | 'shrine' | 'cave' | 'mountain' | 'ruin' | 'quest' | 'player' | 'fish' | 'gather' | 'wildlife';
   x: number;
   z: number;
   meta?: string;
@@ -99,6 +119,18 @@ export class WorldManager {
     }
 
     this.interactables.spawnNpc(wx + 6, wz + 5, h(wx + 6, wz + 5), 'Captain Elara', NPC_DIALOGUE_ELERA);
+    this.interactables.spawnNpc(wx + 14, wz + 6, h(wx + 14, wz + 6), 'Merchant Theron', NPC_DIALOGUE_THERON);
+    this.interactables.spawnNpc(wx + 10, wz - 4, h(wx + 10, wz - 4), 'Blacksmith Garrick', NPC_DIALOGUE_GARRICK);
+    this.interactables.spawnNpc(wx + 2, wz - 6, h(wx + 2, wz - 6), 'Fisher Lina', NPC_DIALOGUE_LINA);
+    this.interactables.spawnNpc(wx - 6, wz + 8, h(wx - 6, wz + 8), 'Herbalist Mora', NPC_DIALOGUE_MORA);
+    this.interactables.spawnNpc(wx - 8, wz - 2, h(wx - 8, wz - 2), 'Hunter Bram', NPC_DIALOGUE_BRAM);
+    this.interactables.spawnNpc(wx + 8, wz + 2, h(wx + 8, wz + 2), 'Innkeeper Sela', NPC_DIALOGUE_SELA);
+
+    const workbench = createWorldProp('village_hut');
+    workbench.group.scale.set(0.55, 0.4, 0.55);
+    workbench.group.position.set(wx + 11, h(wx + 11, wz + 2), wz + 2);
+    this.scene.add(workbench.group);
+
     this.interactables.spawnChest(wx + 10, wz + 8, h(wx + 10, wz + 8));
     this.interactables.spawnChest(wx + 3, wz + 10, h(wx + 3, wz + 10));
 
@@ -130,6 +162,7 @@ export class WorldManager {
   }
 
   private visitedCaves = new Set<string>();
+  private visitedRuins = new Set<string>();
   private shrineVisited = false;
 
   checkVisitTriggers(px: number, pz: number, bus: { emit: (e: string, ...a: unknown[]) => void }): void {
@@ -140,6 +173,14 @@ export class WorldManager {
         if (d < 20 && !this.visitedCaves.has(key)) {
           this.visitedCaves.add(key);
           bus.emit('visit_cave', poi.meta);
+        }
+      }
+      if (poi.type === 'ruin') {
+        const key = `${Math.floor(poi.x)}_${Math.floor(poi.z)}`;
+        const d = (poi.x - px) ** 2 + (poi.z - pz) ** 2;
+        if (d < 18 && !this.visitedRuins.has(key)) {
+          this.visitedRuins.add(key);
+          bus.emit('visit_ruin', poi.meta);
         }
       }
     }
@@ -155,8 +196,14 @@ export class WorldManager {
     }
   }
 
-  getMinimapSnapshot(px: number, pz: number, questMarker: { x: number; z: number } | null, enemies: MapPOI[]): MinimapSnapshot {
-    return this.buildMapSnapshot(px, pz, 56, 8, questMarker, enemies);
+  getMinimapSnapshot(
+    px: number,
+    pz: number,
+    questMarker: { x: number; z: number } | null,
+    enemies: MapPOI[],
+    extra: MapPOI[] = [],
+  ): MinimapSnapshot {
+    return this.buildMapSnapshot(px, pz, 56, 8, questMarker, [...enemies, ...extra]);
   }
 
   getWorldMapSnapshot(
@@ -166,8 +213,9 @@ export class WorldManager {
     step: number,
     questMarker: { x: number; z: number } | null,
     enemies: MapPOI[],
+    extra: MapPOI[] = [],
   ): MinimapSnapshot {
-    return this.buildMapSnapshot(centerX, centerZ, range, step, questMarker, enemies);
+    return this.buildMapSnapshot(centerX, centerZ, range, step, questMarker, [...enemies, ...extra]);
   }
 
   private buildMapSnapshot(

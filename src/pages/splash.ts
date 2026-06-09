@@ -2,10 +2,12 @@ import '../styles/global.css';
 import { DEVELOPER_CREDIT, GAME_TITLE } from '../config/constants';
 
 const tips = [
-  'The Aether never ends — explore infinitely.',
-  'Chain attacks to build devastating combos.',
-  'World bosses lurk in corrupted biomes.',
-  'Eight loot rarities await the bold.',
+  'Chain kills for MULTI-KILL and RAMPAGE bonuses.',
+  'Critical strikes deal double damage — build your combo.',
+  'Follow the glowing quest beacon in the world.',
+  'Press Enter to chat in the online realm.',
+  'Fish at night for rare catches — craft bait first.',
+  'World bosses await in corrupted biomes.',
   DEVELOPER_CREDIT,
 ];
 
@@ -14,24 +16,30 @@ async function boot(): Promise<void> {
   const fill = document.getElementById('loading-fill')!;
   const text = document.getElementById('loading-text')!;
   const menu = document.getElementById('main-menu')!;
+  const ring = document.querySelector('.logo-ring');
 
   const steps = [
-    { p: 15, t: 'Initializing Aether engine...' },
-    { p: 35, t: 'Compiling procedural realms...' },
-    { p: 55, t: 'Loading combat systems...' },
-    { p: 75, t: 'Spawning biomes...' },
-    { p: 90, t: tips[Math.floor(Math.random() * tips.length)] },
-    { p: 100, t: 'Ready.' },
+    { p: 8, t: 'Awakening the Aether Engine…' },
+    { p: 22, t: 'Compiling infinite procedural realms…' },
+    { p: 38, t: 'Forging combat systems…' },
+    { p: 52, t: 'Weaving day & night cycles…' },
+    { p: 66, t: 'Spawning biomes & wildlife…' },
+    { p: 80, t: 'Connecting realm network…' },
+    { p: 92, t: tips[Math.floor(Math.random() * tips.length)] },
+    { p: 100, t: 'Enter Aetherfall.' },
   ];
 
   for (const step of steps) {
     fill.style.width = `${step.p}%`;
     text.textContent = step.t;
-    await delay(280 + Math.random() * 200);
+    ring?.classList.toggle('pulse', step.p > 50);
+    await delay(220 + Math.random() * 180);
   }
 
   document.getElementById('loading-bar')?.classList.add('done');
+  await delay(200);
   menu.classList.remove('hidden');
+  menu.classList.add('reveal');
 }
 
 function delay(ms: number): Promise<void> {

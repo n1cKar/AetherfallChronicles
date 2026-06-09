@@ -8,6 +8,11 @@ export const CHUNK_SIZE = 64;
 export const CHUNK_VIEW_DISTANCE = 4;
 export const TILE_SIZE = 2;
 export const WORLD_SEED_KEY = 'aetherfall_world_seed';
+export const SESSION_CLASS_KEY = 'aetherfall_class';
+export const SESSION_NAME_KEY = 'aetherfall_name';
+export const SESSION_MODE_KEY = 'aetherfall_mode';
+export const SESSION_SERVER_KEY = 'aetherfall_server';
+export const DISPLAY_NAME_STORAGE_KEY = 'aetherfall_display_name';
 
 export const PLAYER_BASE_SPEED = 14;
 export const DODGE_SPEED = 32;

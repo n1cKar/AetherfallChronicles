@@ -9,6 +9,13 @@
 </head>
 <body class="game-body">
   <canvas id="game-canvas"></canvas>
+  <div id="screen-fx" class="screen-fx"></div>
+
+  <div id="objective-compass" class="objective-compass">
+    <div class="compass-arrow">▲</div>
+    <span class="compass-label">Objective</span>
+    <span class="compass-dist">—</span>
+  </div>
 
   <div id="game-ui">
     <header class="hud-top">
@@ -21,7 +28,11 @@
         <span>Lv. <strong id="player-level">1</strong></span>
         <span class="gold">⬡ <span id="gold-amount">0</span></span>
         <span id="biome-name" class="biome">Verdant Expanse</span>
+        <span id="time-clock" class="time-clock" title="Day / night cycle">☀ 6:00 AM</span>
+        <span id="online-status" class="online-status solo">Solo</span>
       </div>
+      <div id="hero-name" class="hero-name panel"></div>
+      <div id="materials-strip" class="materials-strip panel"></div>
       <div id="combo-display" class="combo-display"></div>
     </header>
 
@@ -33,12 +44,18 @@
           <span><i class="dot enemy"></i> Foes</span>
           <span><i class="dot quest"></i> Goal</span>
           <span><i class="dot cave"></i> Cave</span>
+          <span><i class="dot fish"></i> Fish</span>
+          <span><i class="dot gather"></i> Gather</span>
         </div>
       </div>
       <div id="quest-tracker" class="quest-tracker panel"></div>
     </aside>
 
     <aside class="hud-right">
+      <div id="player-list" class="player-list panel">
+        <h4>Adventurers</h4>
+        <ul id="player-list-ul"></ul>
+      </div>
       <div id="loot-feed" class="loot-feed"></div>
     </aside>
 
@@ -48,6 +65,8 @@
         <button id="btn-worldmap" class="hud-btn" title="World Map (M)">🗺</button>
         <button id="btn-journal" class="hud-btn" title="Journal (Q)">📜</button>
         <button id="btn-inventory" class="hud-btn" title="Inventory (I)">◆</button>
+        <button id="btn-life" class="hud-btn" title="Crafting & Life (C)">⚒</button>
+        <button id="btn-upgrades" class="hud-btn" title="Upgrades (U)">⬆</button>
         <button id="btn-pause" class="hud-btn" title="Pause (Esc)">☰</button>
       </div>
     </footer>
@@ -62,6 +81,30 @@
   </div>
 
   <div id="damage-numbers"></div>
+  <div id="nameplates" class="nameplates-layer"></div>
+
+  <div id="chat-panel" class="chat-panel panel">
+    <header>
+      <h3>Realm Chat</h3>
+      <span class="chat-hint">Enter to open · Esc to close</span>
+    </header>
+    <div id="chat-log" class="chat-log"></div>
+    <form id="chat-form" class="chat-form">
+      <input id="chat-input" type="text" maxlength="200" placeholder="Say something to the realm…" autocomplete="off" />
+      <button type="submit" class="btn">Send</button>
+    </form>
+  </div>
+
+  <div id="life-panel" class="life-panel panel">
+    <header>
+      <h2 class="fantasy-title">Life & Crafting</h2>
+      <button id="life-close" class="hud-btn">✕</button>
+    </header>
+    <div id="life-materials" class="life-materials"></div>
+    <div id="life-recipes" class="life-recipes"></div>
+    <p class="life-help">F — fish / gather · C — this panel · E — talk & trade</p>
+    <p class="journal-credit">Developed by n1ckar</p>
+  </div>
 
   <div id="inventory-panel" class="inventory-panel panel">
     <header>
@@ -83,6 +126,35 @@
   <div id="boss-intro" class="boss-intro">
     <p class="boss-warning">WORLD BOSS</p>
     <h2 class="boss-name fantasy-title">—</h2>
+  </div>
+
+  <div id="activity-bar" class="fishing-bar panel">
+    <label id="activity-label">Activity</label>
+    <div class="bar"><div id="activity-fill" class="fill fishing"></div></div>
+  </div>
+
+  <div id="buff-strip" class="buff-strip panel"></div>
+
+  <div id="upgrade-panel" class="upgrade-panel panel">
+    <header>
+      <h2 class="fantasy-title">Ascendant Upgrades</h2>
+      <span id="skill-points-display" class="skill-points">0 SP</span>
+      <button id="upgrade-close" class="hud-btn">✕</button>
+    </header>
+    <section class="upgrade-section">
+      <h3>Attributes</h3>
+      <div id="attr-upgrades" class="attr-grid"></div>
+    </section>
+    <section class="upgrade-section">
+      <h3>Perks</h3>
+      <div id="perk-upgrades" class="perk-grid"></div>
+    </section>
+    <section class="upgrade-section">
+      <h3>Life Mastery</h3>
+      <div id="life-mastery" class="life-mastery"></div>
+    </section>
+    <p class="life-help">U — upgrades · V — vault leap (after unlock) · Earn SP from levels & quests</p>
+    <p class="journal-credit">Developed by n1ckar</p>
   </div>
 
   <p id="interact-hint" class="interact-hint"></p>
@@ -131,8 +203,15 @@
         <li><strong>Click / J</strong> — Attack</li>
         <li><strong>Space</strong> — Dodge</li>
         <li><strong>1–4</strong> — Skills</li>
-        <li><strong>E</strong> — Open chests, talk to NPCs</li>
+        <li><strong>E</strong> — Chests, NPCs, sell to merchants</li>
+        <li><strong>F</strong> — Fish at ponds, gather herbs & ore</li>
+        <li><strong>C</strong> — Crafting & materials · <strong>U</strong> — Upgrades</li>
+        <li><strong>V</strong> — Vault leap (unlock via upgrades)</li>
+        <li><strong>F</strong> at arena, mines, and dig mounds for more activities</li>
         <li>Press <strong>Q</strong> for the full mission journal</li>
+        <li>Watch the <strong>clock</strong> — fireflies & stars at night</li>
+        <li>Follow the <strong>compass</strong> and glowing quest beacon</li>
+        <li>Chain kills for <strong>MULTI-KILL</strong> bonuses</li>
         <li>Follow the <strong>diamond</strong> on the minimap</li>
         <li>Visit caves, shrines, and mountains</li>
       </ul>

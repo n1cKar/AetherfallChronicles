@@ -11,10 +11,23 @@ export class IsometricCamera {
   private elevation = 0.65;
   private shakeOffset = new THREE.Vector3();
   private cinematicTimer = 0;
+  private fovBase = 48;
+  private fovTarget = 48;
+  private lookOffset = new THREE.Vector3(0, 1, 0);
+  private smoothTarget = new THREE.Vector3();
 
   constructor(aspect: number) {
-    this.camera = new THREE.PerspectiveCamera(45, aspect, 0.5, 500);
+    this.camera = new THREE.PerspectiveCamera(this.fovBase, aspect, 0.5, 500);
     this.update(0);
+  }
+
+  punchZoom(amount: number, duration = 0.15): void {
+    this.fovTarget = this.fovBase + amount;
+    setTimeout(() => { this.fovTarget = this.fovBase; }, duration * 1000);
+  }
+
+  getYaw(): number {
+    return this.azimuth;
   }
 
   setTarget(pos: THREE.Vector3): void {
@@ -55,12 +68,16 @@ export class IsometricCamera {
     if (this.cinematicTimer > 0) {
       this.cinematicTimer -= dt;
       this.elevation = lerp(this.elevation, 0.55, dt * 2);
+      this.targetDistance = lerp(this.targetDistance, 20, dt * 1.5);
     } else {
       this.elevation = lerp(this.elevation, 0.65, dt * 2);
     }
 
+    this.smoothTarget.lerp(this.target, Math.min(1, dt * 8));
     this.currentDistance = lerp(this.currentDistance, this.targetDistance, dt * 4);
     this.azimuth = lerp(this.azimuth, this.targetAzimuth, dt * 6);
+    this.camera.fov = lerp(this.camera.fov, this.fovTarget, dt * 12);
+    this.camera.updateProjectionMatrix();
 
     const offset = new THREE.Vector3(
       Math.sin(this.azimuth) * Math.cos(this.elevation) * this.currentDistance,
@@ -68,8 +85,12 @@ export class IsometricCamera {
       Math.cos(this.azimuth) * Math.cos(this.elevation) * this.currentDistance,
     );
 
-    this.camera.position.copy(this.target).add(offset).add(this.shakeOffset);
-    this.camera.lookAt(this.target.x, this.target.y + 1, this.target.z);
+    this.camera.position.copy(this.smoothTarget).add(offset).add(this.shakeOffset);
+    this.camera.lookAt(
+      this.smoothTarget.x + this.lookOffset.x,
+      this.smoothTarget.y + this.lookOffset.y,
+      this.smoothTarget.z + this.lookOffset.z,
+    );
   }
 
   getCamera(): THREE.Camera {

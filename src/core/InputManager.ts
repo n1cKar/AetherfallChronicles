@@ -11,6 +11,10 @@ export interface InputState {
   skill3: boolean;
   skill4: boolean;
   interact: boolean;
+  action: boolean;
+  craftPanel: boolean;
+  upgradePanel: boolean;
+  vault: boolean;
   pause: boolean;
   cameraRotate: number;
   cameraZoom: number;
@@ -106,6 +110,10 @@ export class InputManager {
       skill3: this.keys.has('Digit3') || gp?.buttons[0]?.pressed || false,
       skill4: this.keys.has('Digit4') || gp?.buttons[4]?.pressed || false,
       interact: this.keys.has('KeyE') || gp?.buttons[5]?.pressed || false,
+      action: this.keys.has('KeyF') || gp?.buttons[6]?.pressed || false,
+      craftPanel: this.keys.has('KeyC') || false,
+      upgradePanel: this.keys.has('KeyU') || false,
+      vault: this.keys.has('KeyV') || gp?.buttons[8]?.pressed || false,
       pause: this.keys.has('Escape') || gp?.buttons[9]?.pressed || false,
       cameraRotate: rot,
       cameraZoom: zoom,

@@ -15,6 +15,7 @@ function loadForm(s: GameSettings): void {
   (document.getElementById('autoLoot') as HTMLInputElement).checked = s.autoLoot;
   (document.getElementById('particles') as HTMLSelectElement).value = s.particles;
   (document.getElementById('controllerSensitivity') as HTMLInputElement).value = String(s.controllerSensitivity);
+  (document.getElementById('serverUrl') as HTMLInputElement).value = s.serverUrl ?? 'ws://localhost:2567';
 }
 
 function readForm(): GameSettings {
@@ -30,6 +31,7 @@ function readForm(): GameSettings {
     particles: (document.getElementById('particles') as HTMLSelectElement).value as GameSettings['particles'],
     vsync: true,
     controllerSensitivity: parseFloat((document.getElementById('controllerSensitivity') as HTMLInputElement).value),
+    serverUrl: (document.getElementById('serverUrl') as HTMLInputElement).value.trim() || 'ws://localhost:2567',
   };
 }
 

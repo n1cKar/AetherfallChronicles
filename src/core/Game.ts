@@ -23,6 +23,17 @@ import { StoryCampaign, STORY_CHAPTERS } from '../game/StoryCampaign';
 import type { CampaignQuest } from '../game/StoryCampaign';
 import { GrassField } from '../render/GrassField';
 import { buildPerformanceProfile, type PerformanceProfile } from './PerformanceProfile';
+import { LifeSkillsManager } from '../life/LifeSkillsManager';
+import type { MaterialId } from '../life/Materials';
+import { network, type NetworkPlayerState } from '../network/NetworkClient';
+import { RemotePlayerManager } from '../network/RemotePlayerManager';
+import { NameplateSystem } from '../ui/NameplateSystem';
+import { AmbientLife } from '../world/AmbientLife';
+import { QuestBeacon } from '../effects/QuestBeacon';
+import { ScreenEffects } from '../ui/ScreenEffects';
+import { UpgradeSystem } from '../systems/UpgradeSystem';
+import { ActivityManager } from '../systems/ActivityManager';
+import { addMaterial } from '../life/Materials';
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -44,6 +55,18 @@ export class Game {
   private damageNumbers!: DamageNumberSystem;
   private hud!: GameHUD;
   private story!: StoryCampaign;
+  private life!: LifeSkillsManager;
+  private upgrades!: UpgradeSystem;
+  private activities!: ActivityManager;
+  private displayName = 'Adventurer';
+  private onlineMode = false;
+  private remotes: RemotePlayerManager | null = null;
+  private nameplates: NameplateSystem | null = null;
+  private ambientLife!: AmbientLife;
+  private questBeacon!: QuestBeacon;
+  private screenFx!: ScreenEffects;
+  private footstepTimer = 0;
+  private nightFactor = 1;
   private audio = new AudioManager();
   private settings = SaveManager.loadSettings();
   private perf: PerformanceProfile;
@@ -83,7 +106,13 @@ export class Game {
     window.addEventListener('resize', () => this.resize());
   }
 
-  async start(classId: ClassId): Promise<void> {
+  async start(
+    classId: ClassId,
+    displayName: string,
+    opts?: { online?: boolean; serverUrl?: string },
+  ): Promise<void> {
+    this.displayName = displayName;
+    this.onlineMode = opts?.online ?? false;
     const save = SaveManager.loadPlayer();
     this.player = new Player(classId);
     if (save && save.classId === classId) {
@@ -93,39 +122,93 @@ export class Game {
       this.player.gold = save.gold;
       this.player.inventory = save.inventory ?? [];
       this.player.attributes = save.attributes;
+      this.player.skillPoints = save.skillPoints ?? 0;
       this.player.health = this.player.maxHealth;
-      this.worldSeed = save.worldSeed ?? this.worldSeed;
+      if (!this.onlineMode) this.worldSeed = save.worldSeed ?? this.worldSeed;
+    }
+
+    if (!this.onlineMode && !save?.worldSeed) {
+      this.worldSeed = this.getSeed();
     }
 
     const def = CLASS_DEFINITIONS[classId];
+
+    if (this.onlineMode) {
+      const url = opts?.serverUrl ?? 'ws://localhost:2567';
+      const ok = await network.connect(url, {
+        name: displayName,
+        classId,
+        level: this.player.level,
+      });
+      if (ok && network.worldSeed != null) {
+        this.worldSeed = network.worldSeed;
+        localStorage.setItem(WORLD_SEED_KEY, String(network.worldSeed));
+      } else {
+        this.onlineMode = false;
+        network.disconnect();
+      }
+    }
+
     this.world = new WorldManager(this.scene, this.worldSeed, this.perf);
     this.dayNight = new DayNightCycle(this.scene, def.primaryColor, 0xffe8c0, this.perf.shadowMapSize, this.perf.shadowsEnabled);
     this.weather = new WeatherSystem(this.scene, this.perf.weatherParticles);
     this.postFX = new PostProcessing(this.renderer, window.innerWidth, window.innerHeight, this.perf.postProcessingScale);
     this.postFX.applySettings(this.settings, this.perf.postProcessingScale);
     this.grass = new GrassField(this.scene, this.perf.grassCount);
+    this.ambientLife = new AmbientLife(this.scene);
+    this.questBeacon = new QuestBeacon(this.scene);
+    this.screenFx = new ScreenEffects();
     this.enemyManager = new EnemyManager(this.scene);
     this.enemyManager.applyPerformance(this.perf);
     this.particles = new ParticleSystem(this.scene);
     this.damageNumbers = new DamageNumberSystem();
     this.combat = new CombatSystem(this.bus, this.particles, this.damageNumbers);
     this.hud = new GameHUD();
+
+    if (this.onlineMode) {
+      this.remotes = new RemotePlayerManager(this.scene);
+      this.nameplates = new NameplateSystem();
+    } else if (opts?.online) {
+      this.hud.showInteractMessage('Could not join online realm — playing solo.');
+    }
+
     this.story = new StoryCampaign(this.bus);
+    this.upgrades = new UpgradeSystem();
+    this.upgrades.load(save?.upgrades);
+    this.life = new LifeSkillsManager(this.scene, this.bus);
+    this.life.loadFromSave(save?.lifeSkills);
+    this.activities = new ActivityManager(this.scene, this.bus);
+    if (save?.dayTime != null) this.dayNight.time = save.dayTime;
     this.hud.initSkills(classId);
+    this.hud.setCraftHandler((id) => this.tryCraft(id));
+    this.hud.setUpgradeHandler((type, id) => this.tryUpgrade(type, id));
+    this.hud.setChatHandler((msg) => {
+      if (this.onlineMode) network.sendChat(msg);
+      else this.hud.addChatMessage({ from: this.displayName, message: msg });
+    });
+    this.hud.setHeroName(displayName, this.onlineMode);
+    this.hud.setOnlineStatus(this.onlineMode, network.onlineCount);
+    this.hud.setPlayerList([displayName], displayName);
+    if (this.onlineMode) this.setupMultiplayer();
     this.hud.setStoryTracker(this.story.getHudSummary());
     this.hud.setJournalHtml(this.story.getJournalHtml());
     this.hud.showChapterIntro(STORY_CHAPTERS[0].title, STORY_CHAPTERS[0].intro);
     this.hud.showTutorial();
+    if (!this.nameplates) this.nameplates = new NameplateSystem();
 
     const startX = save?.position?.x ?? 0;
     const startZ = save?.position?.z ?? 0;
     const h = (x: number, z: number) => this.world.getHeightAt(x, z);
     this.player.position.set(startX, h(startX, startZ), startZ);
     this.player.body.position.copy(this.player.position);
+    this.player.upgrades = this.upgrades;
+    this.player.displayName = displayName;
     this.scene.add(this.player.mesh);
 
     // Avoid first-frame hitch: build initial chunks before entering loop.
     this.world.preloadAround(startX, startZ, this.perf.chunkViewDistance >= 3 ? 2 : 1);
+    this.life.spawnStarter(startX, startZ, h);
+    this.activities.spawnWorldContent(startX, startZ, h);
 
     this.spawnStarterChest(startX + 8, startZ + 5, h);
 
@@ -142,10 +225,56 @@ export class Game {
     this.world.interactables.spawnChest(x, z, h(x, z));
   }
 
+  private setupMultiplayer(): void {
+    network.on('welcome', (data: unknown) => {
+      const w = data as { playerId: string; players: NetworkPlayerState[] };
+      this.remotes?.syncFromWelcome(w.players, w.playerId);
+      this.hud.setOnlineStatus(true, network.onlineCount);
+      this.refreshPlayerList();
+      this.hud.addChatMessage({ from: 'System', message: 'Connected to the shared realm.', system: true });
+    });
+    network.on('player_joined', (p: unknown) => {
+      this.remotes?.upsert(p as NetworkPlayerState);
+      this.hud.setOnlineStatus(true, network.onlineCount);
+      this.refreshPlayerList();
+    });
+    network.on('player_left', (id: unknown) => {
+      const name = this.remotes?.remove(String(id));
+      this.hud.setOnlineStatus(true, network.onlineCount);
+      this.refreshPlayerList();
+      if (name) {
+        this.hud.addChatMessage({ from: 'System', message: `${name} disconnected.`, system: true });
+      }
+    });
+    network.on('player_state', (p: unknown) => {
+      this.remotes?.upsert(p as NetworkPlayerState);
+    });
+    network.on('chat', (payload: unknown) => {
+      this.hud.addChatMessage(payload as { from: string; message: string; system?: boolean });
+    });
+    network.on('net_error', (msg: unknown) => {
+      this.hud.showInteractMessage(String(msg));
+    });
+    network.on('disconnected', () => {
+      this.hud.setOnlineStatus(false, 0);
+      this.hud.addChatMessage({ from: 'System', message: 'Lost connection — reconnecting…', system: true });
+    });
+  }
+
+  private refreshPlayerList(): void {
+    const names = [this.displayName, ...this.remotes?.getAll().map((p) => p.name) ?? []];
+    this.hud.setPlayerList(names, this.displayName);
+  }
+
   private setupEvents(): void {
     this.bus.on('enemy_killed', (enemy: unknown, loot: unknown) => {
       const e = enemy as { name: string; tier: string; position: THREE.Vector3 };
       const items = loot as ItemInstance[];
+      this.screenFx.showKillStreak(this.combat.killStreak);
+      if (this.activities.arena.active) {
+        this.activities.onArenaKill();
+        if (this.upgrades.hasPerk('arena_heart')) this.player.heal(5);
+      }
       if (e.tier === 'boss') {
         this.camera.startBossCinematic(3);
         this.hud.showBossIntro(e.name);
@@ -161,10 +290,23 @@ export class Game {
       this.audio.playHit();
     });
 
-    this.bus.on('player_hurt', () => this.audio.playHit());
+    this.bus.on('player_hurt', () => {
+      this.audio.playHit();
+      this.screenFx.flashDamage();
+      this.camera.punchZoom(4);
+    });
+    this.bus.on('combat_hit', (_n: unknown, _dmg: unknown, crit?: unknown) => {
+      if (crit) {
+        this.audio.playCrit();
+        this.screenFx.showCritBanner();
+        this.camera.punchZoom(-3);
+      }
+    });
     this.bus.on('level_up', () => {
       this.hud.showLevelUp();
       this.audio.playLevelUp();
+      this.particles.emitLevelUp(this.player.position);
+      this.screenFx.flashHeal();
       this.story.updateLevel(this.player.level);
       this.hud.setStoryTracker(this.story.getHudSummary());
       this.hud.setJournalHtml(this.story.getJournalHtml());
@@ -172,7 +314,10 @@ export class Game {
 
     this.bus.on('quest_complete', (q: unknown) => {
       const quest = q as CampaignQuest;
+      this.audio.playQuestComplete();
+      this.particles.emitLevelUp(this.player.position);
       this.player.gold += quest.rewards.gold;
+      if (quest.rewards.skillPoints) this.player.skillPoints += quest.rewards.skillPoints;
       if (this.player.gainXp(quest.rewards.xp)) this.bus.emit('level_up');
       this.hud.showQuestComplete(quest.title);
       this.hud.setStoryTracker(this.story.getHudSummary());
@@ -188,6 +333,37 @@ export class Game {
       this.hud.showCampaignComplete();
     });
 
+    this.bus.on('ore_mined', (amt: unknown) => {
+      const n = typeof amt === 'number' ? amt : 1;
+      const bonus = 1 + this.upgrades.getYieldBonus();
+      this.life.materials = addMaterial(this.life.materials, 'ore', Math.ceil(n * bonus));
+      if (Math.random() < 0.35) {
+        this.life.materials = addMaterial(this.life.materials, 'crystal_shard', 1);
+      }
+      this.upgrades.addLifeXp('mine', 1);
+      this.hud.showInteractMessage('Mined ore and crystals!');
+    });
+
+    this.bus.on('treasure_dug', () => {
+      const bonus = 1 + this.upgrades.getYieldBonus();
+      if (Math.random() < 0.55) {
+        this.life.materials = addMaterial(this.life.materials, 'ancient_relic', Math.ceil(bonus));
+        this.player.gold += 25;
+        this.hud.showInteractMessage('Unearthed an Ancient Relic!');
+      } else {
+        this.life.materials = addMaterial(this.life.materials, 'ore', 2);
+        this.player.gold += 10;
+        this.hud.showInteractMessage('Found buried coins and ore.');
+      }
+      this.particles.emitLoot(this.player.position, 0xffd700);
+    });
+
+    this.bus.on('arena_complete', (wave: unknown) => {
+      const w = Number(wave);
+      if (w > this.upgrades.arenaBestWave) this.upgrades.arenaBestWave = w;
+      this.player.gold += w * 20;
+      this.hud.showInteractMessage(`Arena cleared wave ${w}! +${w * 20} gold`);
+    });
   }
 
   setPaused(paused: boolean): void {
@@ -211,8 +387,78 @@ export class Game {
     this.lootDrops.push({ item, mesh, life: 30 });
   }
 
+  private tryCraft(recipeId: string): void {
+    const result = this.life.craft(recipeId);
+    if (!result.ok) {
+      this.hud.showInteractMessage(result.message);
+      return;
+    }
+    const craftBonus = 1 + this.upgrades.getCraftBonus();
+    if (result.recipe?.healAmount) this.player.heal(Math.floor(result.recipe.healAmount * craftBonus));
+    if (result.recipe?.manaAmount) {
+      this.player.mana = Math.min(this.player.maxMana, this.player.mana + Math.floor(result.recipe.manaAmount * craftBonus));
+    }
+    if (result.recipe?.goldCost) this.player.gold += Math.floor(result.recipe.goldCost * craftBonus);
+    if (result.recipe?.buffId && result.recipe.buffDuration) {
+      this.upgrades.applyBuff({
+        id: result.recipe.buffId,
+        name: result.recipe.name,
+        damageMult: result.recipe.damageMult,
+        speedMult: result.recipe.speedMult,
+        regen: result.recipe.regen,
+      }, result.recipe.buffDuration);
+    }
+    this.upgrades.addLifeXp('craft', 1);
+    this.hud.showInteractMessage(result.message);
+    this.hud.renderLifePanel(this.life);
+    this.audio.playLoot();
+  }
+
+  private tryUpgrade(type: 'attr' | 'perk', id: string): void {
+    if (type === 'attr') {
+      if (!this.player.upgradeAttribute(id as keyof typeof this.player.attributes)) {
+        this.hud.showInteractMessage('Need a skill point.');
+        return;
+      }
+      this.hud.showInteractMessage(`Upgraded ${id.toUpperCase()}!`);
+    } else {
+      if (!this.upgrades.canBuyPerk(id, this.player.skillPoints, this.player.level)) {
+        this.hud.showInteractMessage('Cannot unlock that perk yet.');
+        return;
+      }
+      if (!this.player.spendSkillPoint()) return;
+      this.upgrades.buyPerk(id);
+      this.hud.showInteractMessage(`Unlocked perk: ${id.replace('_', ' ')}!`);
+    }
+    this.hud.renderUpgradePanel(this.player, this.upgrades);
+    this.audio.playLevelUp();
+  }
+
   private tryInteract(): void {
     if (this.interactCooldown > 0) return;
+
+    for (const shrine of this.world.interactables.shrines) {
+      if (shrine.position.distanceTo(this.player.position) < 4) {
+        if ((this.life.materials.herb ?? 0) >= 2) {
+          this.interactCooldown = 2;
+          this.life.materials.herb = (this.life.materials.herb ?? 2) - 2;
+          this.upgrades.applyBuff({
+            id: 'shrine_bless',
+            name: 'Starlit Blessing',
+            damageMult: 1.12,
+            regen: 1.5,
+          }, 90);
+          this.activities.blessShrine();
+          this.player.heal(30);
+          this.screenFx.flashHeal();
+          this.hud.showInteractMessage('The shrine accepts your offering. Blessed!');
+          return;
+        }
+        this.hud.showInteractMessage('Offer 2 herbs at the shrine (press E).');
+        return;
+      }
+    }
+
     const chest = this.world.interactables.tryOpenChest(this.player.position);
     if (chest) {
       this.interactCooldown = 0.5;
@@ -231,8 +477,32 @@ export class Game {
       this.interactCooldown = 1;
       this.bus.emit('npc_talk', npc.name);
       this.hud.showDialogue(npc.name, npc.dialogue);
-      this.player.heal(15);
-      this.hud.showInteractMessage(`${npc.name} healed you.`);
+      if (npc.name.includes('Sela')) {
+        if (this.player.gold >= 10) {
+          this.player.gold -= 10;
+          this.player.heal(50);
+          this.player.mana = this.player.maxMana;
+          this.hud.showInteractMessage('Innkeeper Sela restored you for 10 gold.');
+        } else {
+          this.hud.showInteractMessage('Need 10 gold to rest at the inn.');
+        }
+      } else if (npc.name.includes('Theron')) {
+        const sellIds: MaterialId[] = ['herb', 'fish', 'ore', 'hide', 'feather', 'wood', 'cooked_meat'];
+        let earned = 0;
+        for (const id of sellIds) {
+          const count = this.life.materials[id] ?? 0;
+          if (count > 0) earned += this.life.sellMaterial(id, count);
+        }
+        if (earned > 0) {
+          this.player.gold += earned;
+          this.hud.showInteractMessage(`Theron bought your goods for ${earned} gold.`);
+        } else {
+          this.hud.showInteractMessage('Nothing to sell — gather herbs, fish, or ore first.');
+        }
+      } else {
+        this.player.heal(8);
+        this.hud.showInteractMessage(`${npc.name} shares a warm meal (+8 HP).`);
+      }
     }
   }
 
@@ -241,6 +511,10 @@ export class Game {
     requestAnimationFrame(this.animate);
     let dt = Math.min(this.clock.getDelta(), 0.05);
     if (this.paused) return;
+    if (this.hud.isChatOpen() || this.hud.isTypingInUI()) {
+      this.postFX.render(this.scene, this.camera.getCamera(), this.clock.elapsedTime);
+      return;
+    }
 
     dt *= this.combat.timeScale;
     this.playTime += dt;
@@ -285,11 +559,39 @@ export class Game {
     this.player.setPhysicsSubSteps(this.perf.physicsSubSteps);
 
     this.player.applyMovement(moveX, moveZ, input.sprint, dt, h);
-    if (input.dodge) this.player.dodge();
+    if (input.dodge) {
+      if (this.player.dodge()) {
+        this.audio.playDodge();
+        this.particles.emitMagic(this.player.position, 0xaaccff);
+      }
+    }
+    if (input.vault && this.player.vaultLeap()) {
+      this.particles.emitMagic(this.player.position, 0x88ffcc);
+    }
+    if (input.upgradePanel) this.hud.toggleUpgradePanel();
     if (input.interact) this.tryInteract();
-    if (input.attack && this.player.attack()) {
-      this.combat.processPlayerAttack(this.player, this.enemyManager.getAlive());
-      this.particles.emitMagic(this.player.position);
+    const actUpdate = this.activities.update(
+      dt,
+      this.player.position.x,
+      this.player.position.z,
+      h,
+      input.action,
+    );
+    const lifeUpdate = this.life.update(
+      dt,
+      this.player.position.x,
+      this.player.position.z,
+      h,
+      this.dayNight.isNight(),
+      input.action,
+    );
+    if (input.attack) {
+      const huntMsg = this.life.tryHuntOnAttack(this.player.position.x, this.player.position.z);
+      if (huntMsg) this.hud.showInteractMessage(huntMsg);
+      else if (this.player.attack()) {
+        this.combat.processPlayerAttack(this.player, this.enemyManager.getAlive());
+        this.particles.emitMagic(this.player.position);
+      }
     }
     if (input.skill1) this.useSkill(0);
     if (input.skill2) this.useSkill(1);
@@ -297,8 +599,21 @@ export class Game {
     if (input.skill4) this.useSkill(3);
 
     this.player.update(dt, h);
+    this.syncMultiplayer(dt, h);
     this.story.updateLevel(this.player.level);
     this.world.checkVisitTriggers(this.player.position.x, this.player.position.z, this.bus);
+
+    if (this.activities.arena.active) {
+      const alive = this.enemyManager.getAlive().length;
+      if (alive < 2 && this.activities.arena.enemiesToSpawn > 0) {
+        const c = this.activities.arena.center;
+        const angle = Math.random() * Math.PI * 2;
+        const sx = c.x + Math.cos(angle) * 7;
+        const sz = c.z + Math.sin(angle) * 7;
+        this.enemyManager.spawn('void_spawn', sx, sz, h(sx, sz), this.player.level + this.activities.arena.wave);
+        this.activities.arena.enemiesToSpawn--;
+      }
+    }
 
     this.enemyManager.update(dt, this.player.position, h, biome, this.player.level);
     this.combat.update(dt);
@@ -318,9 +633,13 @@ export class Game {
     this.weather.update(dt, this.player.position);
     this.world.interactables.update(dt);
     const dayFactor = this.dayNight.update(dt);
+    this.nightFactor = 1 - dayFactor;
     this.dayNight.followTarget(this.player.position);
-    this.skyColor.setHex(biome.fogColor).lerp(new THREE.Color(0x1a2040), 1 - dayFactor);
+    this.ambientLife.update(dt, this.player.position.x, this.player.position.z, this.nightFactor, this.clock.elapsedTime);
+    this.skyColor.copy(this.dayNight.getSkyColor()).lerp(new THREE.Color(biome.fogColor), 0.25);
     this.scene.background = this.skyColor;
+    this.sceneFog.color.copy(this.dayNight.getFogColor()).lerp(this.fogColor.setHex(biome.fogColor), 0.35);
+    this.hud.updateTimeDisplay(this.dayNight.getClockString(), this.dayNight.getPeriod());
 
     this.grass.update(
       dt,
@@ -341,8 +660,19 @@ export class Game {
     const nearNpc = this.world.interactables.npcs.some(
       (n) => n.position.distanceTo(this.player.position) < 3.5,
     );
-    this.hud.setInteractHint(nearChest || nearNpc ? 'Press E to interact' : '');
+    const nearShrine = this.world.interactables.shrines.some(
+      (s) => s.position.distanceTo(this.player.position) < 4,
+    );
+    const baseHint = nearShrine ? 'Press E to bless shrine (2 herbs)'
+      : nearChest || nearNpc ? 'Press E to interact' : '';
+    const actionHint = actUpdate.hint || lifeUpdate.hint;
+    this.hud.setActionHint(baseHint, actionHint);
+    const actPct = Math.max(actUpdate.miningPct, lifeUpdate.fishingPct);
+    const actLabel = actUpdate.miningPct > 0 ? 'Mining' : lifeUpdate.fishingPct > 0 ? 'Fishing' : '';
+    this.hud.updateLifeHud(this.life, actPct, actLabel, this.upgrades.getActiveBuffLabels());
+    this.screenFx.setLowHealth(this.player.health / this.player.maxHealth < 0.25);
 
+    const lifePois = [...this.life.getMapPOIs(), ...this.activities.getMapPOIs()];
     const mapData = this.world.getMinimapSnapshot(
       this.player.position.x,
       this.player.position.z,
@@ -352,6 +682,7 @@ export class Game {
         x: e.position.x,
         z: e.position.z,
       })),
+      lifePois,
     );
     const mapReq = this.hud.getWorldMapRequest(this.player.position.x, this.player.position.z);
     const worldMapData = mapReq
@@ -366,8 +697,35 @@ export class Game {
           x: e.position.x,
           z: e.position.z,
         })),
+        lifePois,
       )
       : undefined;
+
+    const questMarker = this.story.getQuestMarker();
+    const activeQuest = this.story.getActiveQuest();
+    this.questBeacon.setTarget(
+      questMarker?.x ?? 0,
+      questMarker?.z ?? 0,
+      h(questMarker?.x ?? 0, questMarker?.z ?? 0),
+      !!questMarker,
+    );
+    this.questBeacon.update(dt, this.clock.elapsedTime);
+    this.hud.updateObjectiveCompass(
+      this.player.position.x,
+      this.player.position.z,
+      this.camera.getYaw(),
+      questMarker,
+      activeQuest?.title,
+    );
+    this.screenFx.setLowHealth(this.player.health / this.player.maxHealth < 0.28);
+
+    if (moveX !== 0 || moveZ !== 0) {
+      this.footstepTimer -= dt;
+      if (this.footstepTimer <= 0) {
+        this.footstepTimer = input.sprint ? 0.28 : 0.38;
+        this.particles.emitFootstep(this.player.position);
+      }
+    }
 
     this.hud.update(this.player, biome, mapData, worldMapData);
     this.hud.setStoryTracker(this.story.getHudSummary());
@@ -376,13 +734,16 @@ export class Game {
     this.camera.setScreenShake(this.combat.screenShake);
     this.camera.update(dt);
 
-    this.damageNumbers.setProjector((pos) => {
+    const projector = (pos: THREE.Vector3) => {
       const p = pos.clone().project(this.camera.getCamera());
       return {
         x: (p.x * 0.5 + 0.5) * window.innerWidth,
         y: (-p.y * 0.5 + 0.5) * window.innerHeight,
       };
-    });
+    };
+    this.damageNumbers.setProjector(projector);
+    this.nameplates?.setProjector(projector);
+    this.nameplates?.update();
 
     this.audio.startAmbient(biome.musicMood);
     this.audio.updateEnvironment(biome.musicMood, this.weather.current, this.weather.intensity);
@@ -433,7 +794,7 @@ export class Game {
 
   private autoSave(): void {
     const data: PlayerSaveData = {
-      name: 'Hero',
+      name: this.displayName,
       classId: this.player.classId,
       level: this.player.level,
       xp: this.player.xp,
@@ -449,6 +810,9 @@ export class Game {
       playTimeSeconds: this.playTime,
       achievements: this.story.campaignComplete ? ['campaign_complete'] : [],
       cosmetics: {},
+      lifeSkills: this.life.toSave(),
+      upgrades: this.upgrades.toSave(),
+      dayTime: this.dayNight.time,
     };
     SaveManager.savePlayer(data);
   }
@@ -473,9 +837,43 @@ export class Game {
     this.postFX?.resize(w, h);
   }
 
+  private syncMultiplayer(dt: number, h: (x: number, z: number) => number): void {
+    const head = this.player.position.clone();
+    head.y = h(head.x, head.z) + 2.1;
+    this.nameplates?.setLocalPlayer(this.displayName, head);
+
+    if (!this.onlineMode || !network.connected) return;
+
+    const anim = this.player.state === 'move' ? 'move'
+      : this.player.state === 'attack' ? 'attack'
+        : this.player.state === 'dodge' ? 'dodge' : 'idle';
+
+    network.sendPlayerState({
+      x: this.player.position.x,
+      y: this.player.position.y,
+      z: this.player.position.z,
+      rotation: this.player.rotation,
+      classId: this.player.classId,
+      animation: anim,
+      level: this.player.level,
+    });
+
+    const remoteStates = this.remotes?.update(dt, h) ?? [];
+    this.nameplates?.syncRemotes(remoteStates);
+    this.hud.setOnlineStatus(true, network.onlineCount);
+    this.refreshPlayerList();
+  }
+
   dispose(): void {
     this.running = false;
+    network.disconnect();
+    this.remotes?.dispose();
+    this.nameplates?.dispose();
     this.world?.dispose();
+    this.life?.worldLife.dispose();
+    this.activities?.dispose();
+    this.ambientLife?.dispose();
+    this.questBeacon?.dispose();
     this.enemyManager?.dispose();
     this.postFX?.dispose();
     this.grass?.dispose();
