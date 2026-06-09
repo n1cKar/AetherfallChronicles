@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WORLD_SEED_KEY } from '../config/constants';
+import { WORLD_SEED_KEY, RARITIES } from '../config/constants';
 import { CLASS_DEFINITIONS } from '../character/ClassDefinitions';
 import { Player } from '../character/Player';
 import type { ClassId } from '../config/constants';
@@ -33,7 +33,10 @@ import { QuestBeacon } from '../effects/QuestBeacon';
 import { ScreenEffects } from '../ui/ScreenEffects';
 import { UpgradeSystem } from '../systems/UpgradeSystem';
 import { ActivityManager } from '../systems/ActivityManager';
+import { AchievementSystem } from '../systems/AchievementSystem';
 import { addMaterial } from '../life/Materials';
+import type { EquipSlot } from '../character/Player';
+import { applyMobileDocumentClass } from '../utils/device';
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -67,6 +70,10 @@ export class Game {
   private screenFx!: ScreenEffects;
   private footstepTimer = 0;
   private nightFactor = 1;
+  private stormSurvivalTimer = 0;
+  private lastWeather = 'sunny';
+  private lastBiomeId = '';
+  private achievements!: AchievementSystem;
   private audio = new AudioManager();
   private settings = SaveManager.loadSettings();
   private perf: PerformanceProfile;
@@ -121,6 +128,7 @@ export class Game {
       this.player.xpToNext = save.xpToNext;
       this.player.gold = save.gold;
       this.player.inventory = save.inventory ?? [];
+      this.player.loadEquipped(save.equipped ?? {});
       this.player.attributes = save.attributes;
       this.player.skillPoints = save.skillPoints ?? 0;
       this.player.health = this.player.maxHealth;
@@ -152,6 +160,11 @@ export class Game {
     this.world = new WorldManager(this.scene, this.worldSeed, this.perf);
     this.dayNight = new DayNightCycle(this.scene, def.primaryColor, 0xffe8c0, this.perf.shadowMapSize, this.perf.shadowsEnabled);
     this.weather = new WeatherSystem(this.scene, this.perf.weatherParticles);
+    this.weather.setChangeCallback(() => {
+      this.stormSurvivalTimer = 0;
+      const g = this.weather.getGameplay();
+      this.hud.showWeatherToast(g.label);
+    });
     this.postFX = new PostProcessing(this.renderer, window.innerWidth, window.innerHeight, this.perf.postProcessingScale);
     this.postFX.applySettings(this.settings, this.perf.postProcessingScale);
     this.grass = new GrassField(this.scene, this.perf.grassCount);
@@ -162,8 +175,16 @@ export class Game {
     this.enemyManager.applyPerformance(this.perf);
     this.particles = new ParticleSystem(this.scene);
     this.damageNumbers = new DamageNumberSystem();
+    this.damageNumbers.enabled = this.settings.showDamageNumbers;
     this.combat = new CombatSystem(this.bus, this.particles, this.damageNumbers);
     this.hud = new GameHUD();
+    this.achievements = new AchievementSystem(this.bus, (def) => {
+      this.screenFx.showAchievement(def.icon, def.title, def.description);
+      this.audio.playQuestComplete();
+      this.refreshJournal();
+      this.updateAchievementBadge();
+    });
+    if (save?.achievements) this.achievements.load(save.achievements);
 
     if (this.onlineMode) {
       this.remotes = new RemotePlayerManager(this.scene);
@@ -181,8 +202,31 @@ export class Game {
     if (save?.dayTime != null) this.dayNight.time = save.dayTime;
     this.hud.initSkills(classId);
     this.hud.setCraftHandler((id) => this.tryCraft(id));
+    this.hud.setInventoryHandlers({
+      equip: (id) => {
+        if (this.player.equipItem(id)) {
+          this.audio.playLoot();
+          this.hud.showInteractMessage('Item equipped!');
+        }
+      },
+      unequip: (slot: EquipSlot) => {
+        if (this.player.unequipSlot(slot)) this.hud.showInteractMessage('Item unequipped.');
+      },
+      sell: (id) => {
+        const v = this.player.sellItem(id);
+        if (v > 0) this.hud.showInteractMessage(`Sold for ${v} gold.`);
+      },
+      use: (id) => {
+        const r = this.player.useConsumable(id);
+        if (r.ok) {
+          this.screenFx.flashHeal();
+          this.hud.showInteractMessage(r.message);
+        }
+      },
+    });
     this.hud.setUpgradeHandler((type, id) => this.tryUpgrade(type, id));
     this.hud.setChatHandler((msg) => {
+      this.bus.emit('player_chat');
       if (this.onlineMode) network.sendChat(msg);
       else this.hud.addChatMessage({ from: this.displayName, message: msg });
     });
@@ -191,7 +235,8 @@ export class Game {
     this.hud.setPlayerList([displayName], displayName);
     if (this.onlineMode) this.setupMultiplayer();
     this.hud.setStoryTracker(this.story.getHudSummary());
-    this.hud.setJournalHtml(this.story.getJournalHtml());
+    this.refreshJournal();
+    this.updateAchievementBadge();
     this.hud.showChapterIntro(STORY_CHAPTERS[0].title, STORY_CHAPTERS[0].intro);
     this.hud.showTutorial();
     if (!this.nameplates) this.nameplates = new NameplateSystem();
@@ -275,19 +320,24 @@ export class Game {
         this.activities.onArenaKill();
         if (this.upgrades.hasPerk('arena_heart')) this.player.heal(5);
       }
+      if (this.activities.spire.active) this.activities.onSpireKill();
       if (e.tier === 'boss') {
         this.camera.startBossCinematic(3);
         this.hud.showBossIntro(e.name);
+        this.screenFx.pulseBossVignette();
       }
       for (const item of items) {
+        this.notifyLootRarity(item);
         this.spawnLootDrop(e.position, item);
         if (this.settings.autoLoot) {
           this.player.addItem(item);
           this.hud.addLootNotification(item);
           this.audio.playLoot();
+          this.achievements.checkInventory(this.player.inventory.length);
         }
       }
       this.audio.playHit();
+      if (this.dayNight.isNight()) this.bus.emit('night_kill');
     });
 
     this.bus.on('player_hurt', () => {
@@ -304,24 +354,29 @@ export class Game {
     });
     this.bus.on('level_up', () => {
       this.hud.showLevelUp();
+      this.screenFx.showLevelUpCinematic(this.player.level);
       this.audio.playLevelUp();
       this.particles.emitLevelUp(this.player.position);
       this.screenFx.flashHeal();
       this.story.updateLevel(this.player.level);
+      this.achievements.checkLevel(this.player.level);
       this.hud.setStoryTracker(this.story.getHudSummary());
-      this.hud.setJournalHtml(this.story.getJournalHtml());
+      this.refreshJournal();
+      this.updateAchievementBadge();
     });
 
     this.bus.on('quest_complete', (q: unknown) => {
       const quest = q as CampaignQuest;
       this.audio.playQuestComplete();
       this.particles.emitLevelUp(this.player.position);
+      this.screenFx.showQuestFlash();
       this.player.gold += quest.rewards.gold;
       if (quest.rewards.skillPoints) this.player.skillPoints += quest.rewards.skillPoints;
       if (this.player.gainXp(quest.rewards.xp)) this.bus.emit('level_up');
       this.hud.showQuestComplete(quest.title);
       this.hud.setStoryTracker(this.story.getHudSummary());
-      this.hud.setJournalHtml(this.story.getJournalHtml());
+      this.refreshJournal();
+      this.updateAchievementBadge();
     });
 
     this.bus.on('chapter_intro', (ch: unknown) => {
@@ -331,6 +386,15 @@ export class Game {
 
     this.bus.on('campaign_complete', () => {
       this.hud.showCampaignComplete();
+    });
+
+    this.bus.on('material_gathered', () => {
+      const w = this.weather.current;
+      if (w === 'rain' || w === 'heavy_rain') this.bus.emit('weather_rain_gather');
+    });
+    this.bus.on('fish_caught', () => {
+      const w = this.weather.current;
+      if (w === 'snow' || w === 'blizzard') this.bus.emit('weather_snow_fish');
     });
 
     this.bus.on('ore_mined', (amt: unknown) => {
@@ -361,9 +425,37 @@ export class Game {
     this.bus.on('arena_complete', (wave: unknown) => {
       const w = Number(wave);
       if (w > this.upgrades.arenaBestWave) this.upgrades.arenaBestWave = w;
+      this.achievements.checkArenaWave(w);
       this.player.gold += w * 20;
       this.hud.showInteractMessage(`Arena cleared wave ${w}! +${w * 20} gold`);
     });
+
+    this.bus.on('spire_complete', (floor: unknown) => {
+      const f = Number(floor);
+      this.player.gold += f * 50;
+      this.hud.showInteractMessage(`Aether Spire conquered! Floor ${f} — +${f * 50} gold`);
+    });
+
+    this.bus.on('achievement_gold', (amt: unknown) => {
+      this.player.gold += Number(amt) || 0;
+    });
+  }
+
+  private refreshJournal(): void {
+    this.hud.setJournalHtml(`${this.story.getJournalHtml()}<hr class="journal-divider">${this.achievements.getJournalHtml()}`);
+  }
+
+  private updateAchievementBadge(): void {
+    const el = document.getElementById('achievements-badge');
+    if (!el) return;
+    const { unlocked, total } = this.achievements.getProgress();
+    el.textContent = `🏅 ${unlocked}/${total}`;
+  }
+
+  private notifyLootRarity(item: ItemInstance): void {
+    const idx = RARITIES.indexOf(item.rarity);
+    if (idx >= 5) this.bus.emit('loot_legendary');
+    if (idx >= 6) this.bus.emit('loot_mythic');
   }
 
   setPaused(paused: boolean): void {
@@ -409,6 +501,7 @@ export class Game {
       }, result.recipe.buffDuration);
     }
     this.upgrades.addLifeXp('craft', 1);
+    this.bus.emit('item_crafted');
     this.hud.showInteractMessage(result.message);
     this.hud.renderLifePanel(this.life);
     this.audio.playLoot();
@@ -530,8 +623,11 @@ export class Game {
     this.camera.zoom(input.cameraZoom * 2);
 
     const biome = this.world.getBiomeAtPlayer(this.player.position.x, this.player.position.z);
-    this.sceneFog.color.setHex(biome.fogColor);
-    this.sceneFog.density = biome.fogDensity * this.weather.getFogMultiplier() * 0.45;
+    if (biome.id !== this.lastBiomeId) {
+      this.lastBiomeId = biome.id;
+      this.bus.emit('biome_entered', biome.id);
+      this.postFX.setBiomeGrade(biome.groundColor, biome.fogColor);
+    }
     this.fogColor.setHex(biome.fogColor);
     this.postFX.setFogColor(this.fogColor, 0.08);
 
@@ -558,7 +654,8 @@ export class Game {
     this.player.setColliders(this.physicsColliders);
     this.player.setPhysicsSubSteps(this.perf.physicsSubSteps);
 
-    this.player.applyMovement(moveX, moveZ, input.sprint, dt, h);
+    const weatherPlay = this.weather.getGameplay();
+    this.player.applyMovement(moveX, moveZ, input.sprint, dt, h, weatherPlay.moveSpeed);
     if (input.dodge) {
       if (this.player.dodge()) {
         this.audio.playDodge();
@@ -576,6 +673,7 @@ export class Game {
       this.player.position.z,
       h,
       input.action,
+      this.player.level,
     );
     const lifeUpdate = this.life.update(
       dt,
@@ -584,6 +682,7 @@ export class Game {
       h,
       this.dayNight.isNight(),
       input.action,
+      weatherPlay.fishingBonus,
     );
     if (input.attack) {
       const huntMsg = this.life.tryHuntOnAttack(this.player.position.x, this.player.position.z);
@@ -614,32 +713,81 @@ export class Game {
         this.activities.arena.enemiesToSpawn--;
       }
     }
+    if (this.activities.spire.active) {
+      const alive = this.enemyManager.getAlive().length;
+      if (alive < 3 && this.activities.spire.enemiesToSpawn > 0) {
+        const c = this.activities.spire.center;
+        const angle = Math.random() * Math.PI * 2;
+        const sx = c.x + Math.cos(angle) * 8;
+        const sz = c.z + Math.sin(angle) * 8;
+        const type = this.activities.spire.floor >= 5 ? 'void_abomination' : 'void_spawn';
+        this.enemyManager.spawn(type, sx, sz, h(sx, sz), this.player.level + this.activities.spire.floor * 2);
+        this.activities.spire.enemiesToSpawn--;
+      }
+    }
 
-    this.enemyManager.update(dt, this.player.position, h, biome, this.player.level);
+    this.enemyManager.update(
+      dt, this.player.position, h, biome, this.player.level,
+      this.dayNight.isNight(), this.weather.getGameplay().enemyAggro,
+    );
     this.combat.update(dt);
+    this.audio.duckCombat(this.combat.screenShake > 0.1 || this.player.state === 'attack');
+    this.achievements.checkCombo(this.player.combo);
+    this.achievements.checkKillStreak(this.combat.killStreak);
+    this.achievements.checkGold(this.player.gold);
+    this.achievements.checkInventory(this.player.inventory.length);
+    this.achievements.checkAttributes(this.player.attributes);
 
     for (const enemy of this.enemyManager.getAlive()) {
       this.combat.processEnemyAttack(enemy, this.player);
     }
 
     if (this.player.state === 'dead') {
-      this.hud.showDeathScreen();
+      this.hud.showDeathScreen(this.player.deaths, this.player.level);
+      this.audio.duckCombat(false);
       setTimeout(() => {
         this.player.respawn(this.player.position.x, this.player.position.z, h);
         this.hud.hideDeathScreen();
-      }, 2500);
+      }, 2800);
     }
 
-    this.weather.update(dt, this.player.position);
+    this.weather.update(dt, this.player.position, biome.id, this.dayNight.isNight());
     this.world.interactables.update(dt);
     const dayFactor = this.dayNight.update(dt);
     this.nightFactor = 1 - dayFactor;
     this.dayNight.followTarget(this.player.position);
-    this.ambientLife.update(dt, this.player.position.x, this.player.position.z, this.nightFactor, this.clock.elapsedTime);
-    this.skyColor.copy(this.dayNight.getSkyColor()).lerp(new THREE.Color(biome.fogColor), 0.25);
+    const wPlay = this.weather.getGameplay();
+    const isStorm = this.weather.current === 'storm' || this.weather.current === 'blizzard';
+    this.ambientLife.update(
+      dt, this.player.position.x, this.player.position.z,
+      this.nightFactor, this.clock.elapsedTime, this.weather.current, isStorm,
+    );
+
+    if (this.weather.current === 'storm' && this.weather.intensity > 0.45) {
+      this.stormSurvivalTimer += dt;
+      if (this.stormSurvivalTimer > 22 && this.lastWeather !== 'storm_done') {
+        this.bus.emit('weather_storm');
+        this.lastWeather = 'storm_done';
+      }
+    } else if (this.weather.current !== 'storm') {
+      this.lastWeather = this.weather.current;
+    }
+
+    const lightning = this.weather.consumeLightningFlash();
+    if (lightning > 0.5) this.screenFx.flashLightning();
+
+    const weatherDarken = this.weather.getSkyDarken();
+    this.skyColor.copy(this.dayNight.getSkyColor())
+      .lerp(new THREE.Color(biome.fogColor), 0.2)
+      .lerp(new THREE.Color(0x0a0a12), weatherDarken);
     this.scene.background = this.skyColor;
+    const visMult = wPlay.visibility;
+    this.sceneFog.density = biome.fogDensity * this.weather.getFogMultiplier() * 0.45 * (2 - visMult);
     this.sceneFog.color.copy(this.dayNight.getFogColor()).lerp(this.fogColor.setHex(biome.fogColor), 0.35);
+    this.postFX.setFogColor(this.sceneFog.color, 0.08);
     this.hud.updateTimeDisplay(this.dayNight.getClockString(), this.dayNight.getPeriod());
+    const wClass = `w-${this.weather.current.replace(/_/g, '-')}`;
+    this.hud.updateWeatherDisplay(wPlay.icon, wPlay.label, wClass);
 
     this.grass.update(
       dt,
@@ -775,9 +923,11 @@ export class Game {
       const dist = this.player.position.distanceTo(drop.mesh.position);
       if (dist < 2.5) {
         if (!this.player.inventory.find((it) => it.id === drop.item.id)) {
+          this.notifyLootRarity(drop.item);
           this.player.addItem(drop.item);
           this.hud.addLootNotification(drop.item);
           this.audio.playLoot();
+          this.achievements.checkInventory(this.player.inventory.length);
         }
         this.scene.remove(drop.mesh);
         drop.mesh.geometry.dispose();
@@ -805,10 +955,10 @@ export class Game {
       position: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z },
       worldSeed: this.worldSeed,
       inventory: this.player.inventory,
-      equipped: {},
+      equipped: this.player.equipped,
       gold: this.player.gold,
       playTimeSeconds: this.playTime,
-      achievements: this.story.campaignComplete ? ['campaign_complete'] : [],
+      achievements: this.achievements.export(),
       cosmetics: {},
       lifeSkills: this.life.toSave(),
       upgrades: this.upgrades.toSave(),
@@ -828,6 +978,7 @@ export class Game {
   private resize(): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
+    applyMobileDocumentClass();
     // Recompute perf (e.g. mobile rotation / dpi changes)
     this.perf = buildPerformanceProfile(this.settings);
     this.renderer.setPixelRatio(this.perf.pixelRatio);
@@ -864,6 +1015,10 @@ export class Game {
     this.refreshPlayerList();
   }
 
+  unlockAudio(): void {
+    void this.audio.resume();
+  }
+
   dispose(): void {
     this.running = false;
     network.disconnect();
@@ -872,6 +1027,7 @@ export class Game {
     this.world?.dispose();
     this.life?.worldLife.dispose();
     this.activities?.dispose();
+    this.weather?.dispose();
     this.ambientLife?.dispose();
     this.questBeacon?.dispose();
     this.enemyManager?.dispose();

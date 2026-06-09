@@ -29,12 +29,27 @@ export interface ArenaState {
   center: THREE.Vector3;
 }
 
+export interface SpireState {
+  active: boolean;
+  floor: number;
+  timer: number;
+  enemiesToSpawn: number;
+  center: THREE.Vector3;
+}
+
 export class ActivityManager {
   mineNodes: MineNode[] = [];
   digSpots: DigSpot[] = [];
   arena: ArenaState = {
     active: false,
     wave: 0,
+    timer: 0,
+    enemiesToSpawn: 0,
+    center: new THREE.Vector3(),
+  };
+  spire: SpireState = {
+    active: false,
+    floor: 0,
     timer: 0,
     enemiesToSpawn: 0,
     center: new THREE.Vector3(),
@@ -46,6 +61,7 @@ export class ActivityManager {
   constructor(private scene: THREE.Scene, private bus: EventBus) {}
 
   spawnWorldContent(wx: number, wz: number, getHeight: (x: number, z: number) => number): void {
+    this.spawnSpire(wx - 28, wz + 8, getHeight);
     this.spawnArena(wx + 22, wz - 18, getHeight);
     this.spawnMineNode(wx + 30, wz + 12, getHeight, 'deep');
     this.spawnMineNode(wx - 18, wz + 20, getHeight, 'surface');
@@ -53,6 +69,28 @@ export class ActivityManager {
       const a = (i / 4) * Math.PI * 2 + 0.5;
       this.spawnDigSpot(wx + Math.cos(a) * 22, wz + Math.sin(a) * 22, getHeight);
     }
+  }
+
+  spawnSpire(x: number, z: number, getHeight: (x: number, z: number) => number): void {
+    const y = getHeight(x, z);
+    const g = new THREE.Group();
+    for (let i = 0; i < 6; i++) {
+      const tier = new THREE.Mesh(
+        new THREE.CylinderGeometry(2.2 - i * 0.25, 2.5 - i * 0.25, 1.2, 6),
+        createStylizedMaterial(0x6a7aaa, { emissive: 0x3344aa, emissiveIntensity: 0.25 }),
+      );
+      tier.position.y = 0.6 + i * 1.1;
+      g.add(tier);
+    }
+    const crystal = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.6, 0),
+      createStylizedMaterial(0xaaccff, { emissive: 0x6688ff, emissiveIntensity: 0.8 }),
+    );
+    crystal.position.y = 7.2;
+    g.add(crystal);
+    g.position.set(x, y, z);
+    this.scene.add(g);
+    this.spire.center.set(x, y, z);
   }
 
   spawnArena(x: number, z: number, getHeight: (x: number, z: number) => number): void {
@@ -120,10 +158,12 @@ export class ActivityManager {
     pz: number,
     getHeight: (x: number, z: number) => number,
     useAction: boolean,
+    playerLevel = 1,
   ): {
     hint: string;
     miningPct: number;
     inArena: boolean;
+    inSpire: boolean;
   } {
     let hint = '';
     let miningPct = 0;
@@ -143,8 +183,14 @@ export class ActivityManager {
     const mine = this.getNearestMine(px, pz);
     const dig = this.getNearestDig(px, pz);
     const inArena = distance2D(px, pz, this.arena.center.x, this.arena.center.z) < 6;
+    const inSpire = distance2D(px, pz, this.spire.center.x, this.spire.center.z) < 5;
 
-    if (inArena && !this.arena.active) {
+    if (inSpire && !this.spire.active && !this.arena.active && playerLevel >= 15) {
+      hint = 'Press F to ascend the Aether Spire';
+      if (useAction) this.startSpire();
+    } else if (inSpire && playerLevel < 15) {
+      hint = 'Aether Spire — reach level 15 to enter';
+    } else if (inArena && !this.arena.active) {
       hint = 'Press F to enter Void Arena';
       if (useAction) {
         this.startArena();
@@ -191,7 +237,22 @@ export class ActivityManager {
       hint = `Arena Wave ${this.arena.wave} — clear foes!`;
     }
 
-    return { hint, miningPct, inArena };
+    if (this.spire.active) {
+      this.spire.timer -= dt;
+      if (this.spire.timer <= 0 && this.spire.enemiesToSpawn <= 0) {
+        this.spire.floor++;
+        this.spire.enemiesToSpawn = 2 + Math.floor(this.spire.floor * 1.2);
+        this.spire.timer = 50;
+        this.bus.emit('spire_floor', this.spire.floor);
+        if (this.spire.floor >= 8) {
+          this.spire.active = false;
+          this.bus.emit('spire_complete', this.spire.floor);
+        }
+      }
+      hint = `Aether Spire — Floor ${this.spire.floor}`;
+    }
+
+    return { hint, miningPct, inArena, inSpire };
   }
 
   private completeMine(node: MineNode): void {
@@ -220,6 +281,19 @@ export class ActivityManager {
       this.arena.active = false;
       this.bus.emit('arena_complete', this.arena.wave);
     }
+  }
+
+  startSpire(): void {
+    this.spire.active = true;
+    this.spire.floor = 1;
+    this.spire.timer = 35;
+    this.spire.enemiesToSpawn = 3;
+    this.bus.emit('spire_floor', 1);
+  }
+
+  onSpireKill(): void {
+    if (!this.spire.active) return;
+    this.spire.enemiesToSpawn = Math.max(0, this.spire.enemiesToSpawn - 1);
   }
 
   blessShrine(): void {
@@ -252,7 +326,10 @@ export class ActivityManager {
   }
 
   getMapPOIs(): MapPOI[] {
-    const pois: MapPOI[] = [{ type: 'ruin', x: this.arena.center.x, z: this.arena.center.z, meta: 'Void Arena' }];
+    const pois: MapPOI[] = [
+      { type: 'mountain', x: this.spire.center.x, z: this.spire.center.z, meta: 'Aether Spire' },
+      { type: 'ruin', x: this.arena.center.x, z: this.arena.center.z, meta: 'Void Arena' },
+    ];
     for (const m of this.mineNodes) {
       if (!m.depleted) pois.push({ type: 'gather', x: m.position.x, z: m.position.z, meta: 'mine' });
     }

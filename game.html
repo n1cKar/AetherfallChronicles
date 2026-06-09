@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0a0c14" />
   <title>Aetherfall Chronicles — Play</title>
   <link rel="stylesheet" href="/src/styles/global.css" />
   <link rel="stylesheet" href="/src/styles/game.css" />
@@ -29,7 +33,9 @@
         <span class="gold">⬡ <span id="gold-amount">0</span></span>
         <span id="biome-name" class="biome">Verdant Expanse</span>
         <span id="time-clock" class="time-clock" title="Day / night cycle">☀ 6:00 AM</span>
+        <span id="weather-display" class="weather-display" title="Current weather">☀ Sunny</span>
         <span id="online-status" class="online-status solo">Solo</span>
+        <span id="achievements-badge" class="ach-badge" title="Achievements (see Journal)">🏅 0/20</span>
       </div>
       <div id="hero-name" class="hero-name panel"></div>
       <div id="materials-strip" class="materials-strip panel"></div>
@@ -73,10 +79,24 @@
   </div>
 
   <div id="touch-controls" class="touch-controls">
-    <div id="touch-joystick" class="touch-joystick"></div>
-    <div class="touch-buttons">
-      <button id="touch-attack" class="touch-btn attack">⚔</button>
-      <button id="touch-dodge" class="touch-btn dodge">↻</button>
+    <div id="touch-joystick-zone" class="touch-joystick-zone"></div>
+    <div id="touch-joystick" class="touch-joystick" aria-hidden="true">
+      <div id="touch-joystick-knob" class="touch-joystick-knob"></div>
+    </div>
+    <div class="touch-skills">
+      <button id="touch-skill1" class="touch-btn skill" type="button">1</button>
+      <button id="touch-skill2" class="touch-btn skill" type="button">2</button>
+      <button id="touch-skill3" class="touch-btn skill" type="button">3</button>
+      <button id="touch-skill4" class="touch-btn skill" type="button">4</button>
+    </div>
+    <div class="touch-actions">
+      <button id="touch-interact" class="touch-btn interact" type="button" title="Interact">E</button>
+      <button id="touch-action" class="touch-btn action-btn" type="button" title="Fish / Mine / Gather">F</button>
+      <button id="touch-sprint" class="touch-btn sprint" type="button" title="Sprint">⚡</button>
+    </div>
+    <div class="touch-combat">
+      <button id="touch-dodge" class="touch-btn dodge" type="button">↻</button>
+      <button id="touch-attack" class="touch-btn attack" type="button">⚔</button>
     </div>
   </div>
 
@@ -108,10 +128,21 @@
 
   <div id="inventory-panel" class="inventory-panel panel">
     <header>
-      <h2 class="fantasy-title">Inventory</h2>
+      <h2 class="fantasy-title">Inventory & Gear</h2>
       <button id="inv-close" class="hud-btn">✕</button>
     </header>
-    <div id="inventory-grid" class="inventory-grid"></div>
+    <div class="inventory-layout">
+      <aside class="equip-slots">
+        <h3>Equipped</h3>
+        <div id="equip-weapon" class="equip-slot" data-slot="weapon">⚔ Weapon</div>
+        <div id="equip-armor" class="equip-slot" data-slot="armor">🛡 Armor</div>
+        <div id="equip-accessory" class="equip-slot" data-slot="accessory">💍 Accessory</div>
+        <div id="gear-stats" class="gear-stats"></div>
+      </aside>
+      <div id="inventory-grid" class="inventory-grid"></div>
+    </div>
+    <p class="inv-hint inv-hint-desktop">Click items to equip · Right-click to sell · Consumables: double-click to use</p>
+    <p class="inv-hint inv-hint-mobile">Tap to equip · Use Sell / Use buttons on each item</p>
   </div>
 
   <div id="pause-menu" class="pause-menu">
@@ -198,7 +229,7 @@
   <div id="tutorial-overlay" class="tutorial-overlay">
     <div class="tutorial-panel panel">
       <h2 class="fantasy-title">Welcome, Adventurer</h2>
-      <ul>
+      <ul class="tutorial-desktop">
         <li><strong>WASD</strong> — Move</li>
         <li><strong>Click / J</strong> — Attack</li>
         <li><strong>Space</strong> — Dodge</li>
@@ -209,11 +240,23 @@
         <li><strong>V</strong> — Vault leap (unlock via upgrades)</li>
         <li><strong>F</strong> at arena, mines, and dig mounds for more activities</li>
         <li>Press <strong>Q</strong> for the full mission journal</li>
-        <li>Watch the <strong>clock</strong> — fireflies & stars at night</li>
+        <li>Watch the <strong>clock</strong> — fireflies & stars at night; more foes spawn after dark</li>
+        <li><strong>Weather</strong> shifts by biome — rain helps fishing, storms test your resolve (see journal)</li>
+        <li><strong>I</strong> — Inventory: equip gear, sell items, use potions</li>
+        <li>Reach level 15 for the <strong>Aether Spire</strong> endgame tower</li>
+        <li>Track <strong>achievements</strong> in the Journal (Q)</li>
         <li>Follow the <strong>compass</strong> and glowing quest beacon</li>
         <li>Chain kills for <strong>MULTI-KILL</strong> bonuses</li>
         <li>Follow the <strong>diamond</strong> on the minimap</li>
         <li>Visit caves, shrines, and mountains</li>
+      </ul>
+      <ul class="tutorial-mobile">
+        <li><strong>Left joystick</strong> — Move (drag anywhere on the left side)</li>
+        <li><strong>⚔</strong> — Attack · <strong>↻</strong> — Dodge</li>
+        <li><strong>1–4</strong> — Skills · <strong>E</strong> — Interact · <strong>F</strong> — Fish / mine / gather</li>
+        <li><strong>⚡</strong> — Sprint · Drag right side of screen to rotate camera</li>
+        <li><strong>Pinch</strong> — Zoom · Bottom buttons open map, journal, inventory</li>
+        <li>Tap items in inventory to equip; use Sell button on mobile</li>
       </ul>
       <button id="tutorial-dismiss" class="btn">Begin</button>
       <p class="tutorial-credit">Developed by n1ckar</p>
@@ -221,8 +264,13 @@
   </div>
 
   <div id="death-screen" class="death-screen">
-    <h2 class="fantasy-title">You Have Fallen</h2>
-    <p>Respawning...</p>
+    <div class="death-panel panel">
+      <h2 class="fantasy-title">You Have Fallen</h2>
+      <p id="death-subtitle" class="death-subtitle">The Void claims another soul...</p>
+      <p id="death-stats" class="death-stats"></p>
+      <div class="death-bar"><div id="death-respawn-fill" class="death-respawn-fill"></div></div>
+      <p class="death-hint">Respawning at last position</p>
+    </div>
   </div>
 
   <div id="victory-screen" class="victory-screen">

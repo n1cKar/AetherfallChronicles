@@ -38,6 +38,8 @@ export class PostProcessing {
         time: { value: 0 },
         fogColor: { value: new THREE.Color(0x1a2035) },
         fogStrength: { value: 0.08 },
+        gradeTint: { value: new THREE.Vector3(1, 1, 1) },
+        gradeSat: { value: 1.0 },
       },
       vertexShader: `
         varying vec2 vUv;
@@ -54,6 +56,8 @@ export class PostProcessing {
         uniform float time;
         uniform vec3 fogColor;
         uniform float fogStrength;
+        uniform vec3 gradeTint;
+        uniform float gradeSat;
         varying vec2 vUv;
 
         float filmGrain(vec2 uv, float t) {
@@ -87,6 +91,9 @@ export class PostProcessing {
           col.rgb = col.rgb / (col.rgb + vec3(1.0));
           col.rgb = pow(col.rgb, vec3(0.92));
           col.rgb = mix(col.rgb, col.rgb * vec3(1.08, 1.02, 0.94), 0.18);
+          float gray = dot(col.rgb, vec3(0.299, 0.587, 0.114));
+          col.rgb = mix(vec3(gray), col.rgb, gradeSat);
+          col.rgb *= gradeTint;
           col.rgb = mix(col.rgb, fogColor, fogStrength * (1.0 - vig));
           col.rgb += filmGrain(uv, time) * 0.025;
 
@@ -138,6 +145,19 @@ export class PostProcessing {
     const mat = this.quad.material as THREE.ShaderMaterial;
     mat.uniforms.fogColor.value.copy(color);
     mat.uniforms.fogStrength.value = strength;
+  }
+
+  setBiomeGrade(groundColor: number, fogColor: number): void {
+    const mat = this.quad.material as THREE.ShaderMaterial;
+    const c = new THREE.Color(groundColor);
+    mat.uniforms.gradeTint.value.set(
+      0.85 + c.r * 0.3,
+      0.85 + c.g * 0.3,
+      0.85 + c.b * 0.35,
+    );
+    const f = new THREE.Color(fogColor);
+    const sat = 0.92 + (f.r + f.g + f.b) / 3 * 0.12;
+    mat.uniforms.gradeSat.value = Math.min(1.15, sat);
   }
 
   dispose(): void {

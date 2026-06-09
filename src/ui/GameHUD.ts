@@ -1,5 +1,5 @@
 import { CLASS_DEFINITIONS } from '../character/ClassDefinitions';
-import type { Player } from '../character/Player';
+import type { Player, EquipSlot } from '../character/Player';
 import { RARITY_COLORS } from '../config/constants';
 import type { ItemInstance } from '../loot/ItemGenerator';
 import type { BiomeDefinition } from '../world/BiomeConfig';
@@ -10,6 +10,7 @@ import { RECIPES } from '../life/CraftingSystem';
 import type { ChatMessage } from '../network/NetworkClient';
 import { ATTRIBUTE_UPGRADES, PERK_TREE, type UpgradeSystem } from '../systems/UpgradeSystem';
 import { ObjectiveCompass } from './ObjectiveCompass';
+import { isMobileDevice } from '../utils/device';
 
 const POI_COLORS: Record<string, string> = {
   player: '#f0c96e',
@@ -51,6 +52,7 @@ export class GameHUD {
   private lifePanel: HTMLElement;
   private materialsStrip: HTMLElement;
   private timeClock: HTMLElement;
+  private weatherDisplay: HTMLElement;
   private activityBar: HTMLElement;
   private activityFill: HTMLElement;
   private activityLabel: HTMLElement;
@@ -59,6 +61,10 @@ export class GameHUD {
   private upgradePanelOpen = false;
   private onCraft?: (recipeId: string) => void;
   private onUpgrade?: (type: 'attr' | 'perk', id: string) => void;
+  private onEquip?: (itemId: string) => void;
+  private onUnequip?: (slot: EquipSlot) => void;
+  private onSell?: (itemId: string) => void;
+  private onUseItem?: (itemId: string) => void;
   private onChatSend?: (message: string) => void;
   private chatOpen = false;
   private chatLog: HTMLElement;
@@ -95,6 +101,7 @@ export class GameHUD {
     this.lifePanel = document.getElementById('life-panel')!;
     this.materialsStrip = document.getElementById('materials-strip')!;
     this.timeClock = document.getElementById('time-clock')!;
+    this.weatherDisplay = document.getElementById('weather-display')!;
     this.activityBar = document.getElementById('activity-bar')!;
     this.activityFill = document.getElementById('activity-fill')!;
     this.activityLabel = document.getElementById('activity-label')!;
@@ -109,7 +116,7 @@ export class GameHUD {
     this.compass = new ObjectiveCompass();
 
     const dpr = window.devicePixelRatio || 1;
-    this.minimapSize = 168;
+    this.minimapSize = isMobileDevice() ? 100 : 168;
     this.minimapCanvas.width = this.minimapSize * dpr;
     this.minimapCanvas.height = this.minimapSize * dpr;
     this.minimapCanvas.style.width = `${this.minimapSize}px`;
@@ -258,7 +265,7 @@ export class GameHUD {
 
     this.drawMinimap(map);
     if (this.worldMapOpen && worldMap) this.drawWorldMap(worldMap);
-    if (this.inventoryOpen) this.renderInventory(player.inventory);
+    if (this.inventoryOpen) this.renderInventory(player);
   }
 
   isWorldMapOpen(): boolean {
@@ -457,30 +464,117 @@ export class GameHUD {
     this.inventoryPanel.classList.toggle('open', this.inventoryOpen);
   }
 
-  private renderInventory(items: ItemInstance[]): void {
+  setInventoryHandlers(handlers: {
+    equip: (id: string) => void;
+    unequip: (slot: EquipSlot) => void;
+    sell: (id: string) => void;
+    use: (id: string) => void;
+  }): void {
+    this.onEquip = handlers.equip;
+    this.onUnequip = handlers.unequip;
+    this.onSell = handlers.sell;
+    this.onUseItem = handlers.use;
+  }
+
+  private renderInventory(player: Player): void {
     const grid = document.getElementById('inventory-grid')!;
-    grid.innerHTML = items.map((item) => `
-      <div class="inv-item" style="border-color: ${RARITY_COLORS[item.rarity]}">
-        <span class="inv-rarity">${item.rarity[0].toUpperCase()}</span>
+    const g = player.getGearBonuses();
+    const stats = document.getElementById('gear-stats');
+    if (stats) {
+      stats.innerHTML = `
+        <div>⚔ ${g.weaponDps} DPS</div>
+        <div>💥 ${(player.critChance * 100).toFixed(0)}% Crit</div>
+        <div>🩸 ${(player.lifesteal * 100).toFixed(0)}% Leech</div>
+      `;
+    }
+    for (const slot of ['weapon', 'armor', 'accessory'] as EquipSlot[]) {
+      const el = document.getElementById(`equip-${slot}`);
+      const item = player.equipped[slot];
+      if (!el) continue;
+      if (item) {
+        el.innerHTML = `<span class="eq-rarity" style="color:${RARITY_COLORS[item.rarity]}">${item.name}</span>
+          <button class="eq-unequip" data-slot="${slot}">Unequip</button>`;
+        el.classList.add('filled');
+      } else {
+        el.innerHTML = slot === 'weapon' ? '⚔ Weapon' : slot === 'armor' ? '🛡 Armor' : '💍 Accessory';
+        el.classList.remove('filled');
+      }
+    }
+    document.querySelectorAll('.eq-unequip').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.onUnequip?.((btn as HTMLElement).dataset.slot as EquipSlot);
+      });
+    });
+
+    const mobile = isMobileDevice();
+    grid.innerHTML = player.inventory.map((item) => {
+      const aff = item.affixes.slice(0, 2).map((a) => a.name).join(' ');
+      const stat = item.type === 'weapon' ? `${item.dps} DPS` : item.type === 'consumable' ? 'Use' : aff || item.type;
+      const leg = item.legendaryPower ? `<span class="inv-leg">${item.legendaryPower}</span>` : '';
+      const equipBtn = item.type !== 'consumable'
+        ? '<button type="button" class="inv-equip-btn">Equip</button>' : '';
+      const useBtn = item.type === 'consumable'
+        ? '<button type="button" class="inv-use-btn">Use</button>' : '';
+      const mobileActions = mobile
+        ? `<div class="inv-mobile-actions">${equipBtn}${useBtn}<button type="button" class="inv-sell-btn">Sell</button></div>`
+        : '';
+      return `<div class="inv-item" data-id="${item.id}" style="border-color: ${RARITY_COLORS[item.rarity]}" title="${item.name}\n${item.affixes.map((a) => `${a.name} +${a.value}`).join(', ')}">
+        <span class="inv-rarity">${item.rarity.slice(0, 3).toUpperCase()}</span>
         <span class="inv-name">${item.name}</span>
-        <span class="inv-dps">${item.dps} DPS</span>
-      </div>
-    `).join('') || '<p class="empty-inv">No items yet — defeat enemies!</p>';
+        <span class="inv-dps">${stat}</span>${leg}${mobileActions}
+      </div>`;
+    }).join('') || '<p class="empty-inv">No items yet — defeat enemies!</p>';
+
+    grid.querySelectorAll('.inv-item').forEach((el) => {
+      const id = (el as HTMLElement).dataset.id!;
+      const item = player.inventory.find((i) => i.id === id);
+      el.addEventListener('click', () => {
+        if (mobile) return;
+        if (!item) return;
+        if (item.type === 'consumable') this.onUseItem?.(id);
+        else if (item.type === 'weapon' || item.type === 'armor' || item.type === 'accessory') this.onEquip?.(id);
+      });
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this.onSell?.(id);
+      });
+      el.addEventListener('dblclick', () => {
+        if (item?.type === 'consumable') this.onUseItem?.(id);
+      });
+      el.querySelector('.inv-equip-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.onEquip?.(id);
+      });
+      el.querySelector('.inv-use-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.onUseItem?.(id);
+      });
+      el.querySelector('.inv-sell-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.onSell?.(id);
+      });
+    });
   }
 
   showLevelUp(): void {
-    const banner = document.createElement('div');
-    banner.className = 'level-up-banner';
-    banner.innerHTML = '<span>LEVEL UP!</span>';
-    document.body.appendChild(banner);
-    setTimeout(() => banner.remove(), 2500);
+    // Level-up cinematic is handled by ScreenEffects from Game.ts
+  }
+
+  showAchievement(icon: string, title: string, description: string): void {
+    const el = document.createElement('div');
+    el.className = 'achievement-toast';
+    el.innerHTML = `<span class="ach-toast-icon">${icon}</span><div><strong>Achievement Unlocked</strong><br>${title}<small>${description}</small></div>`;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+    setTimeout(() => { el.classList.add('hide'); setTimeout(() => el.remove(), 500); }, 4200);
   }
 
   showBossIntro(name: string): void {
     const intro = document.getElementById('boss-intro')!;
     intro.querySelector('.boss-name')!.textContent = name;
     intro.classList.add('active');
-    setTimeout(() => intro.classList.remove('active'), 4000);
+    setTimeout(() => intro.classList.remove('active'), 4500);
   }
 
   showChapterIntro(title: string, intro: string): void {
@@ -511,18 +605,28 @@ export class GameHUD {
   showDialogue(name: string, lines: string[]): void {
     const panel = document.getElementById('dialogue-panel');
     if (!panel) return;
+    const textEl = panel.querySelector('.dialogue-text') as HTMLElement;
     panel.querySelector('.dialogue-name')!.textContent = name;
-    panel.querySelector('.dialogue-text')!.textContent = lines.join(' ');
+    const full = lines.join(' ');
+    textEl.textContent = '';
     panel.classList.add('open');
-    setTimeout(() => panel.classList.remove('open'), 5000);
+    let i = 0;
+    const type = () => {
+      if (i < full.length) {
+        textEl.textContent += full[i++];
+        setTimeout(type, 18 + Math.random() * 12);
+      }
+    };
+    type();
+    setTimeout(() => panel.classList.remove('open'), Math.max(5000, full.length * 25));
   }
 
   showQuestComplete(title: string): void {
     const el = document.getElementById('quest-toast');
     if (!el) return;
-    el.innerHTML = `<strong>Mission Complete</strong><br>${title}`;
+    el.innerHTML = `<strong>✦ Mission Complete ✦</strong><br>${title}`;
     el.classList.add('show');
-    setTimeout(() => el.classList.remove('show'), 3500);
+    setTimeout(() => el.classList.remove('show'), 4000);
   }
 
   showCampaignComplete(): void {
@@ -539,15 +643,25 @@ export class GameHUD {
   }
 
   private deathShown = false;
-  showDeathScreen(): void {
+  showDeathScreen(deaths = 1, level = 1): void {
     if (this.deathShown) return;
     this.deathShown = true;
-    document.getElementById('death-screen')?.classList.add('open');
+    const screen = document.getElementById('death-screen');
+    const stats = document.getElementById('death-stats');
+    const fill = document.getElementById('death-respawn-fill');
+    if (stats) stats.textContent = `Fallen ${deaths} time${deaths > 1 ? 's' : ''} · Level ${level}`;
+    if (fill) {
+      fill.style.width = '0%';
+      requestAnimationFrame(() => { fill.style.width = '100%'; });
+    }
+    screen?.classList.add('open');
   }
 
   hideDeathScreen(): void {
     this.deathShown = false;
     document.getElementById('death-screen')?.classList.remove('open');
+    const fill = document.getElementById('death-respawn-fill');
+    if (fill) fill.style.width = '0%';
   }
 
   setCraftHandler(handler: (recipeId: string) => void): void {
@@ -627,6 +741,20 @@ export class GameHUD {
     };
     this.timeClock.textContent = `${icons[period]} ${clock}`;
     this.timeClock.className = `time-clock period-${period}`;
+  }
+
+  updateWeatherDisplay(icon: string, label: string, weatherClass: string): void {
+    if (!this.weatherDisplay) return;
+    this.weatherDisplay.textContent = `${icon} ${label}`;
+    this.weatherDisplay.className = `weather-display ${weatherClass}`;
+  }
+
+  showWeatherToast(label: string): void {
+    const el = document.getElementById('interact-toast');
+    if (!el) return;
+    el.textContent = `Weather: ${label}`;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 2800);
   }
 
   updateLifeHud(

@@ -10,6 +10,7 @@ interface Floater {
 export class DamageNumberSystem {
   private container: HTMLElement;
   private floaters: Floater[] = [];
+  enabled = true;
 
   constructor(containerId = 'damage-numbers') {
     this.container = document.getElementById(containerId) ?? document.body;
@@ -21,6 +22,7 @@ export class DamageNumberSystem {
     crit = false,
     playerDamage = false,
   ): void {
+    if (!this.enabled) return;
     const el = document.createElement('div');
     el.className = `damage-number ${crit ? 'crit' : ''} ${playerDamage ? 'player-dmg' : ''}`;
     el.textContent = Math.floor(amount).toString();

@@ -21,7 +21,8 @@ export interface CampaignObjective {
   id: string;
   text: string;
   type: 'kill' | 'talk' | 'chest' | 'visit_cave' | 'visit_shrine' | 'visit_ruin' | 'elite' | 'level' | 'boss'
-    | 'gather' | 'fish' | 'hunt' | 'craft' | 'mine' | 'arena' | 'bless' | 'dig' | 'deliver';
+    | 'gather' | 'fish' | 'hunt' | 'craft' | 'mine' | 'arena' | 'bless' | 'dig' | 'deliver'
+    | 'night_kill' | 'weather_storm' | 'weather_rain' | 'weather_snow';
   target: number;
   current: number;
   done: boolean;
@@ -33,13 +34,13 @@ export const STORY_CHAPTERS: StoryChapter[] = [
     id: 'ch1',
     title: 'Chapter I — Riftfall',
     intro: 'The sky tore open above Aetherfall. Captain Elara needs every blade at the outpost before the void swallows the camp.',
-    questIds: ['sq_intro', 'sq_clearing', 'sq_supplies', 'sq_outpost_life', 'sq_first_craft'],
+    questIds: ['sq_intro', 'sq_clearing', 'sq_supplies', 'sq_outpost_life', 'sq_first_craft', 'sq_night_watch'],
   },
   {
     id: 'ch2',
     title: 'Chapter II — Emberroot Depths',
     intro: 'Ancient caves pulse with void energy. Miners report crystal veins — and something hungry in the dark.',
-    questIds: ['sq_ruins', 'sq_mine', 'sq_cave', 'sq_arena', 'sq_elite_hunt', 'sq_grow_strong'],
+    questIds: ['sq_ruins', 'sq_mine', 'sq_rain_gather', 'sq_cave', 'sq_storm_survivor', 'sq_arena', 'sq_elite_hunt', 'sq_grow_strong'],
   },
   {
     id: 'ch3',
@@ -51,7 +52,7 @@ export const STORY_CHAPTERS: StoryChapter[] = [
     id: 'ch4',
     title: 'Chapter IV — Eternal Aetherfall',
     intro: 'The rift is sealed, yet Aetherfall endures. Hunt relics, master the arena, and become legend.',
-    questIds: ['sq_dig_relics', 'sq_arena_master', 'sq_life_master', 'sq_endless_hunt'],
+    questIds: ['sq_dig_relics', 'sq_arena_master', 'sq_life_master', 'sq_weather_master', 'sq_endless_hunt'],
   },
 ];
 
@@ -115,6 +116,17 @@ export function buildCampaignQuests(): CampaignQuest[] {
       complete: false,
     },
     {
+      id: 'sq_night_watch',
+      chapterId: 'ch1',
+      title: 'Night Watch',
+      storyText: 'Voidspawn grow bold after sunset. Captain Elara needs five kills under starlight to keep the camp safe.',
+      objectives: [
+        { id: 'o_night', text: 'Slay foes at night (0/5)', type: 'night_kill', target: 5, current: 0, done: false },
+      ],
+      rewards: { gold: 55, xp: 110, skillPoints: 1 },
+      complete: false,
+    },
+    {
       id: 'sq_ruins',
       chapterId: 'ch2',
       title: 'Whispers in the Ruins',
@@ -134,6 +146,28 @@ export function buildCampaignQuests(): CampaignQuest[] {
         { id: 'o_mine', text: 'Mine ore and crystals (0/4)', type: 'mine', target: 4, current: 0, done: false, marker: { x: 30, z: 12 } },
       ],
       rewards: { gold: 85, xp: 170, skillPoints: 1 },
+      complete: false,
+    },
+    {
+      id: 'sq_rain_gather',
+      chapterId: 'ch2',
+      title: 'Rain-Kissed Herbs',
+      storyText: 'Herbalist Mora says sunleaf soaked by rain holds stronger essence. Gather while the sky weeps.',
+      objectives: [
+        { id: 'o_rain', text: 'Gather herbs during rain (0/4)', type: 'weather_rain', target: 4, current: 0, done: false },
+      ],
+      rewards: { gold: 65, xp: 130 },
+      complete: false,
+    },
+    {
+      id: 'sq_storm_survivor',
+      chapterId: 'ch2',
+      title: 'Eye of the Storm',
+      storyText: 'Lightning splits the peaks when the void stirs the clouds. Endure a storm and prove your resolve.',
+      objectives: [
+        { id: 'o_storm', text: 'Survive a storm (0/1)', type: 'weather_storm', target: 1, current: 0, done: false },
+      ],
+      rewards: { gold: 90, xp: 200, skillPoints: 1 },
       complete: false,
     },
     {
@@ -258,6 +292,18 @@ export function buildCampaignQuests(): CampaignQuest[] {
       complete: false,
     },
     {
+      id: 'sq_weather_master',
+      chapterId: 'ch4',
+      title: 'Child of Every Sky',
+      storyText: 'A true Ascendant reads the heavens. Fish in snow, gather in wind, and walk through blizzard and sun alike.',
+      objectives: [
+        { id: 'o_snow', text: 'Fish during snowfall (0/1)', type: 'weather_snow', target: 1, current: 0, done: false },
+        { id: 'o_storm2', text: 'Endure storms (0/2)', type: 'weather_storm', target: 2, current: 0, done: false },
+      ],
+      rewards: { gold: 350, xp: 550, skillPoints: 2 },
+      complete: false,
+    },
+    {
       id: 'sq_endless_hunt',
       chapterId: 'ch4',
       title: 'Endless Hunt',
@@ -300,6 +346,10 @@ export class StoryCampaign {
     this.bus.on('shrine_blessed', () => this.progressObjective('bless', 1));
     this.bus.on('arena_wave', (w: unknown) => this.onArenaWave(Number(w)));
     this.bus.on('arena_complete', (w: unknown) => this.onArenaWave(Number(w)));
+    this.bus.on('night_kill', () => this.progressObjective('night_kill', 1));
+    this.bus.on('weather_storm', () => this.progressObjective('weather_storm', 1));
+    this.bus.on('weather_rain_gather', () => this.progressObjective('weather_rain', 1));
+    this.bus.on('weather_snow_fish', () => this.progressObjective('weather_snow', 1));
   }
 
   getActiveQuest(): CampaignQuest | null {

@@ -18,6 +18,18 @@ import { clamp } from '../utils/math';
 import type { ItemInstance } from '../loot/ItemGenerator';
 
 export type PlayerState = 'idle' | 'move' | 'attack' | 'dodge' | 'hurt' | 'dead';
+export type EquipSlot = 'weapon' | 'armor' | 'accessory';
+
+export interface GearBonuses {
+  str: number;
+  dex: number;
+  int: number;
+  vit: number;
+  critChance: number;
+  lifesteal: number;
+  weaponDps: number;
+  damageBuff: number;
+}
 
 export class Player {
   mesh: THREE.Group;
@@ -41,6 +53,9 @@ export class Player {
   dodgeCooldown = 0;
   invulnerable = false;
   inventory: ItemInstance[] = [];
+  equipped: Partial<Record<EquipSlot, ItemInstance>> = {};
+  damageBuffTimer = 0;
+  deaths = 0;
   skillCooldowns = new Map<string, number>();
   attackCooldown = 0;
   attributes = { str: 10, dex: 10, int: 10, vit: 10 };
@@ -67,14 +82,57 @@ export class Player {
     this.body = this.physics.createBody(this.position);
   }
 
+  getGearBonuses(): GearBonuses {
+    const out: GearBonuses = {
+      str: 0, dex: 0, int: 0, vit: 0, critChance: 0, lifesteal: 0, weaponDps: 0, damageBuff: 0,
+    };
+    for (const item of Object.values(this.equipped)) {
+      if (!item) continue;
+      if (item.type === 'weapon') out.weaponDps += item.dps;
+      for (const aff of item.affixes) {
+        if (aff.stat === 'strength') out.str += aff.value;
+        else if (aff.stat === 'dexterity') out.dex += aff.value;
+        else if (aff.stat === 'intelligence') out.int += aff.value;
+        else if (aff.stat === 'vitality') out.vit += aff.value;
+        else if (aff.stat === 'critChance') out.critChance += aff.value * 0.002;
+        else if (aff.stat === 'lifesteal') out.lifesteal += aff.value * 0.003;
+        else if (aff.stat === 'buff_damage') out.damageBuff += aff.value * 0.01;
+      }
+    }
+    if (this.damageBuffTimer > 0) out.damageBuff += 0.2;
+    return out;
+  }
+
+  get effectiveAttributes() {
+    const g = this.getGearBonuses();
+    return {
+      str: this.attributes.str + Math.floor(g.str * 0.1),
+      dex: this.attributes.dex + Math.floor(g.dex * 0.1),
+      int: this.attributes.int + Math.floor(g.int * 0.1),
+      vit: this.attributes.vit + Math.floor(g.vit * 0.1),
+    };
+  }
+
   get damage(): number {
     const buff = this.upgrades?.getDamageMult() ?? 1;
-    return (8 + this.attributes.str * 1.2 + this.level * 2 + this.combo * 0.5) * buff;
+    const g = this.getGearBonuses();
+    const attrs = this.effectiveAttributes;
+    return (8 + attrs.str * 1.2 + this.level * 2 + this.combo * 0.5 + g.weaponDps * 0.35)
+      * buff * (1 + g.damageBuff);
+  }
+
+  get critChance(): number {
+    return 0.12 + this.combo * 0.01 + this.getGearBonuses().critChance;
   }
 
   get defense(): number {
     const dr = this.upgrades?.getDamageReduction() ?? 0;
-    return (this.attributes.vit * 0.8 + this.level) * (1 + dr);
+    const vit = this.effectiveAttributes.vit;
+    return (vit * 0.8 + this.level + this.getGearBonuses().vit * 0.05) * (1 + dr);
+  }
+
+  get lifesteal(): number {
+    return this.getGearBonuses().lifesteal;
   }
 
   getPhysicsMods(moving: boolean): PhysicsModifiers {
@@ -97,6 +155,7 @@ export class Player {
   update(dt: number, worldHeight: (x: number, z: number) => number): void {
     if (this.dodgeCooldown > 0) this.dodgeCooldown -= dt;
     if (this.vaultCooldown > 0) this.vaultCooldown -= dt;
+    if (this.damageBuffTimer > 0) this.damageBuffTimer -= dt;
     const regen = this.upgrades?.update(dt);
     if (regen?.regen) this.heal(regen.regen);
     if (this.dodgeTimer > 0) {
@@ -140,10 +199,11 @@ export class Player {
     sprint: boolean,
     dt: number,
     worldHeight: (x: number, z: number) => number,
+    weatherSpeedMult = 1,
   ): void {
     if (this.state === 'dodge' || this.state === 'dead') return;
 
-    const speedMult = this.upgrades?.getSpeedMult() ?? 1;
+    const speedMult = (this.upgrades?.getSpeedMult() ?? 1) * weatherSpeedMult;
     const speed = (sprint ? PLAYER_BASE_SPEED * 1.35 : PLAYER_BASE_SPEED) * speedMult;
     const movingSoon = Math.hypot(dirX, dirZ) > 0.1;
     const { moving, fallDamage } = this.physics.move(
@@ -253,8 +313,14 @@ export class Player {
     if (this.health <= 0) {
       this.health = 0;
       this.state = 'dead';
+      this.deaths++;
     }
     return actual;
+  }
+
+  applyLifesteal(damageDealt: number): void {
+    const ls = this.lifesteal;
+    if (ls > 0) this.heal(damageDealt * ls);
   }
 
   heal(amount: number): void {
@@ -280,6 +346,85 @@ export class Player {
 
   addItem(item: ItemInstance): void {
     if (this.inventory.length < 48) this.inventory.push(item);
+  }
+
+  private slotForItem(item: ItemInstance): EquipSlot | null {
+    if (item.type === 'weapon') return 'weapon';
+    if (item.type === 'armor') return 'armor';
+    if (item.type === 'accessory') return 'accessory';
+    return null;
+  }
+
+  equipItem(itemId: string): boolean {
+    const idx = this.inventory.findIndex((i) => i.id === itemId);
+    if (idx < 0) return false;
+    const item = this.inventory[idx];
+    const slot = this.slotForItem(item);
+    if (!slot) return false;
+    const prev = this.equipped[slot];
+    if (prev) this.inventory.push(prev);
+    this.equipped[slot] = item;
+    this.inventory.splice(idx, 1);
+    if (slot === 'armor') {
+      this.maxHealth += 8 + item.level;
+      this.health = Math.min(this.health + 8, this.maxHealth);
+    }
+    return true;
+  }
+
+  unequipSlot(slot: EquipSlot): boolean {
+    const item = this.equipped[slot];
+    if (!item || this.inventory.length >= 48) return false;
+    this.inventory.push(item);
+    delete this.equipped[slot];
+    if (slot === 'armor') {
+      this.maxHealth = Math.max(80 + this.attributes.vit * 8, this.maxHealth - 8 - item.level);
+      this.health = Math.min(this.health, this.maxHealth);
+    }
+    return true;
+  }
+
+  sellItem(itemId: string): number {
+    const idx = this.inventory.findIndex((i) => i.id === itemId);
+    if (idx < 0) return 0;
+    const item = this.inventory[idx];
+    this.inventory.splice(idx, 1);
+    this.gold += item.sellValue;
+    return item.sellValue;
+  }
+
+  useConsumable(itemId: string): { ok: boolean; message: string } {
+    const idx = this.inventory.findIndex((i) => i.id === itemId);
+    if (idx < 0) return { ok: false, message: '' };
+    const item = this.inventory[idx];
+    if (item.type !== 'consumable') return { ok: false, message: '' };
+    const aff = item.affixes[0];
+    if (!aff) return { ok: false, message: '' };
+    if (aff.stat === 'heal') {
+      this.heal(aff.value);
+      this.inventory.splice(idx, 1);
+      return { ok: true, message: `Used ${item.name} (+${aff.value} HP)` };
+    }
+    if (aff.stat === 'mana') {
+      this.mana = clamp(this.mana + aff.value, 0, this.maxMana);
+      this.inventory.splice(idx, 1);
+      return { ok: true, message: `Used ${item.name} (+${aff.value} Mana)` };
+    }
+    if (aff.stat === 'buff_damage') {
+      this.damageBuffTimer = 45;
+      this.inventory.splice(idx, 1);
+      return { ok: true, message: `${item.name} — damage boosted!` };
+    }
+    return { ok: false, message: '' };
+  }
+
+  loadEquipped(data: Partial<Record<string, ItemInstance>>): void {
+    this.equipped = {};
+    for (const [slot, item] of Object.entries(data)) {
+      if (item && ['weapon', 'armor', 'accessory'].includes(slot)) {
+        this.equipped[slot as EquipSlot] = item;
+      }
+    }
   }
 
   respawn(x: number, z: number, worldHeight: (x: number, z: number) => number): void {

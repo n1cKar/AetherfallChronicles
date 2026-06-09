@@ -21,6 +21,7 @@ export class AudioManager {
   private natureGain: GainNode | null = null;
   private musicPulseTimer: number | null = null;
   private currentMood = '';
+  private baseMusicLevel = 0.22;
 
   init(settings: GameSettings): void {
     if (this.ctx) return;
@@ -40,7 +41,8 @@ export class AudioManager {
   applySettings(settings: GameSettings): void {
     if (!this.masterGain) return;
     this.masterGain.gain.value = settings.masterVolume;
-    if (this.musicGain) this.musicGain.gain.value = settings.musicVolume * 0.22;
+    this.baseMusicLevel = settings.musicVolume * 0.22;
+    if (this.musicGain) this.musicGain.gain.value = this.baseMusicLevel;
     if (this.ambientGain) this.ambientGain.gain.value = settings.musicVolume * 0.12;
     if (this.sfxGain) this.sfxGain.gain.value = settings.sfxVolume;
   }
@@ -118,19 +120,30 @@ export class AudioManager {
 
   updateEnvironment(mood: string, weather: string, intensity: number): void {
     if (!this.ctx) return;
-    // Wind intensity follows weather and dark moods.
-    const weatherBoost = weather === 'clear' ? 0.05 : 0.16 + intensity * 0.24;
+    const windy = ['windy', 'storm', 'blizzard'].includes(weather);
+    const rainy = ['rain', 'heavy_rain', 'storm'].includes(weather);
+    const snowy = ['snow', 'blizzard'].includes(weather);
+    const calm = weather === 'sunny' || weather === 'clear';
+
+    let weatherBoost = calm ? 0.04 : 0.12 + intensity * 0.22;
+    if (windy) weatherBoost += 0.18;
+    if (rainy) weatherBoost += 0.1;
+    if (snowy) weatherBoost += 0.08;
+
     const moodBoost = (mood === 'eerie' || mood === 'dark' || mood === 'boss') ? 0.18 : 0.1;
     if (this.windGain) {
       this.windGain.gain.setTargetAtTime(weatherBoost + moodBoost * 0.3, this.ctx.currentTime, 0.7);
     }
     if (this.windFilter) {
-      const base = weather === 'snow' ? 450 : weather === 'rain' ? 700 : 560;
-      this.windFilter.frequency.setTargetAtTime(base + intensity * 300, this.ctx.currentTime, 0.8);
+      let base = 560;
+      if (snowy) base = 420;
+      else if (rainy) base = 780;
+      else if (windy) base = 920;
+      this.windFilter.frequency.setTargetAtTime(base + intensity * 280, this.ctx.currentTime, 0.8);
     }
     if (this.natureGain) {
-      const n = mood === 'peaceful' || mood === 'magical' ? 0.08 : 0.03;
-      this.natureGain.gain.setTargetAtTime(n * (1 - intensity * 0.6), this.ctx.currentTime, 1);
+      const n = (mood === 'peaceful' || mood === 'magical') && calm ? 0.1 : 0.03;
+      this.natureGain.gain.setTargetAtTime(n * (1 - intensity * (rainy ? 0.8 : 0.5)), this.ctx.currentTime, 1);
     }
   }
 
@@ -226,5 +239,11 @@ export class AudioManager {
     lfo.start();
     this.natureGain = natureGain;
     this.natureLfo = lfo;
+  }
+
+  duckCombat(active: boolean): void {
+    if (!this.musicGain || !this.ctx) return;
+    const target = active ? this.baseMusicLevel * 0.35 : this.baseMusicLevel;
+    this.musicGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.1);
   }
 }

@@ -103,12 +103,62 @@ export class ItemGenerator {
     };
   }
 
+  static generateArmor(level: number, forceRarity?: Rarity): ItemInstance {
+    const item = this.generate(level, forceRarity);
+    const armorNames = ['Plate', 'Mail', 'Robe', 'Cloak', 'Guard'];
+    item.type = 'armor';
+    item.baseName = armorNames[Math.floor(Math.random() * armorNames.length)];
+    item.name = `${PREFIXES[Math.floor(Math.random() * PREFIXES.length)]} ${item.baseName}`;
+    item.dps = 0;
+    item.sellValue = Math.floor(item.sellValue * 0.85);
+    return item;
+  }
+
+  static generateAccessory(level: number, forceRarity?: Rarity): ItemInstance {
+    const item = this.generate(level, forceRarity);
+    const accNames = ['Ring', 'Amulet', 'Charm', 'Talisman'];
+    item.type = 'accessory';
+    item.baseName = accNames[Math.floor(Math.random() * accNames.length)];
+    item.name = `${PREFIXES[Math.floor(Math.random() * PREFIXES.length)]} ${item.baseName}`;
+    item.dps = 0;
+    item.sellValue = Math.floor(item.sellValue * 0.9);
+    return item;
+  }
+
+  static generateConsumable(level: number): ItemInstance {
+    const kinds = [
+      { name: 'Aether Potion', stat: 'heal', value: 40 + level * 6 },
+      { name: 'Mana Draught', stat: 'mana', value: 35 + level * 5 },
+      { name: 'Elixir of Might', stat: 'buff_damage', value: 15 + level * 2 },
+    ];
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    return {
+      id: `item_${++itemCounter}_${Date.now()}`,
+      name: kind.name,
+      baseName: kind.name,
+      rarity: 'common',
+      type: 'consumable',
+      level,
+      affixes: [{ id: kind.stat, name: kind.name, stat: kind.stat, value: kind.value }],
+      dps: 0,
+      sellValue: 8 + level * 2,
+    };
+  }
+
   static generateLootBurst(level: number, count: number): ItemInstance[] {
     const items: ItemInstance[] = [];
     for (let i = 0; i < count; i++) {
-      if (Math.random() < 0.15) {
-        const boost = Math.random() < 0.02 ? 'divine' : 'legendary';
-        items.push(this.generate(level, boost as Rarity));
+      const roll = Math.random();
+      if (roll < 0.12) {
+        const boost = roll < 0.02 ? 'divine' : roll < 0.05 ? 'mythic' : 'legendary';
+        const gen = Math.random() < 0.5 ? this.generate(level, boost as Rarity) : this.generateArmor(level, boost as Rarity);
+        items.push(gen);
+      } else if (roll < 0.22) {
+        items.push(this.generateArmor(level));
+      } else if (roll < 0.30) {
+        items.push(this.generateAccessory(level));
+      } else if (roll < 0.38) {
+        items.push(this.generateConsumable(level));
       } else {
         items.push(this.generate(level));
       }

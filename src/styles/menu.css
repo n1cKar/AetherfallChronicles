@@ -271,3 +271,49 @@
 
 .page-title { font-size: 2rem; margin-bottom: 0.5rem; }
 .subtitle { color: var(--text-dim); margin-bottom: 1rem; }
+
+.splash-page, .char-select-page, .settings-page, .credits-page {
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  min-height: 100dvh;
+}
+
+@media (max-width: 768px), (pointer: coarse) {
+  .splash-content, .char-select-content, .settings-content {
+    padding: 1.25rem;
+    padding-bottom: max(2rem, env(safe-area-inset-bottom));
+    justify-content: flex-start;
+    padding-top: max(2rem, env(safe-area-inset-top));
+  }
+
+  .class-grid {
+    grid-template-columns: 1fr;
+    margin: 1rem 0;
+  }
+
+  .class-card {
+    padding: 1rem;
+    min-height: 48px;
+  }
+
+  .char-actions, .main-menu {
+    width: 100%;
+    max-width: 360px;
+  }
+
+  .char-actions .btn, .main-menu .btn {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  .join-input {
+    font-size: 16px; /* prevents iOS zoom on focus */
+  }
+
+  .game-title { font-size: clamp(1.6rem, 8vw, 2.5rem); }
+
+  .credits-footer {
+    position: relative;
+    pointer-events: auto;
+  }
+}

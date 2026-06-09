@@ -43,11 +43,15 @@ export class EnemyManager {
     worldHeight: (x: number, z: number) => number,
     biome: BiomeDefinition,
     playerLevel: number,
+    isNight = false,
+    aggroMult = 1,
   ): void {
     this.spawnTimer -= dt;
     const alive = this.enemies.filter((e) => e.alive);
-    if (this.spawnTimer <= 0 && alive.length < Math.min(15, this.maxEnemies)) {
-      this.spawnTimer = 8 + Math.random() * 6;
+    const cap = Math.min(15, this.maxEnemies);
+    const spawnInterval = (isNight ? 5.5 : 8) + Math.random() * (isNight ? 4 : 6);
+    if (this.spawnTimer <= 0 && alive.length < cap) {
+      this.spawnTimer = spawnInterval / Math.max(0.85, aggroMult);
       const angle = Math.random() * Math.PI * 2;
       const dist = 25 + Math.random() * 15;
       const sx = playerPos.x + Math.sin(angle) * dist;

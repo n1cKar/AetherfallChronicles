@@ -59,7 +59,7 @@ export class CombatSystem {
       const dist = Math.sqrt(dx * dx + dz * dz);
       if (dist > range) continue;
 
-      const crit = Math.random() < 0.12 + player.combo * 0.01;
+      const crit = Math.random() < player.critChance;
       let dmg = player.damage * mult * (0.9 + Math.random() * 0.2);
       if (crit) dmg *= 2.1;
       this.lastCrit = crit;
@@ -67,6 +67,7 @@ export class CombatSystem {
       const kbZ = dz / (dist || 1);
       const actual = enemy.takeDamage(dmg, kbX, kbZ);
       totalDamage += actual;
+      player.applyLifesteal(actual);
       hits.push(enemy);
 
       this.particles.emitHit(enemy.position, crit ? 0xffee44 : enemy.tier === 'boss' ? 0xff8844 : 0xffcc66);

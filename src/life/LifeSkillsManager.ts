@@ -65,6 +65,7 @@ export class LifeSkillsManager {
     getHeight: (x: number, z: number) => number,
     isNight: boolean,
     useAction: boolean,
+    fishingWeatherBonus = 0,
   ): { hint: string; fishingPct: number } {
     if (this.actionCooldown > 0) this.actionCooldown -= dt;
     this.worldLife.update(dt, px, pz, getHeight);
@@ -93,7 +94,8 @@ export class LifeSkillsManager {
     if (this.fishingActive && fishSpot?.id === this.fishingSpotId) {
       const baitBonus = (this.materials.bait ?? 0) > 0 ? 1.4 : 1;
       const timeBonus = isNight ? 0.75 : 1.15;
-      this.fishingProgress += dt * baitBonus * timeBonus;
+      const rainBonus = 1 + fishingWeatherBonus;
+      this.fishingProgress += dt * baitBonus * timeBonus * rainBonus;
       fishingPct = Math.min(1, this.fishingProgress / 2.8);
       if (this.fishingProgress >= 2.8) {
         this.completeFishing(isNight);

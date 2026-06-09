@@ -11,8 +11,22 @@ const tips = [
   DEVELOPER_CREDIT,
 ];
 
+function setupPageTransitions(): void {
+  document.body.classList.add('page-enter');
+  document.querySelectorAll('a[href]').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      const href = (a as HTMLAnchorElement).getAttribute('href');
+      if (!href || href.startsWith('#') || href.startsWith('http')) return;
+      e.preventDefault();
+      document.body.classList.add('page-exit');
+      setTimeout(() => { window.location.href = href; }, 420);
+    });
+  });
+}
+
 async function boot(): Promise<void> {
   document.title = GAME_TITLE;
+  setupPageTransitions();
   const fill = document.getElementById('loading-fill')!;
   const text = document.getElementById('loading-text')!;
   const menu = document.getElementById('main-menu')!;
@@ -25,14 +39,17 @@ async function boot(): Promise<void> {
     { p: 52, t: 'Weaving day & night cycles…' },
     { p: 66, t: 'Spawning biomes & wildlife…' },
     { p: 80, t: 'Connecting realm network…' },
+    { p: 88, t: 'Preloading realm assets…' },
     { p: 92, t: tips[Math.floor(Math.random() * tips.length)] },
     { p: 100, t: 'Enter Aetherfall.' },
   ];
 
+  const preload = import('../core/Game').catch(() => null);
   for (const step of steps) {
     fill.style.width = `${step.p}%`;
     text.textContent = step.t;
     ring?.classList.toggle('pulse', step.p > 50);
+    if (step.p >= 88) await preload;
     await delay(220 + Math.random() * 180);
   }
 

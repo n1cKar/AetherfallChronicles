@@ -104,3 +104,17 @@ a:hover { text-decoration: underline; }
 }
 
 .credits-footer strong { color: var(--gold); font-weight: 600; }
+
+body.page-exit {
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+
+body.page-enter {
+  animation: page-fade-in 0.5s ease;
+}
+
+@keyframes page-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
