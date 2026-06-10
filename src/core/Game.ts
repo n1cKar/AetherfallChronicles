@@ -14,7 +14,7 @@ import { PostProcessing } from '../render/PostProcessing';
 import { ParticleSystem } from '../effects/ParticleSystem';
 import { DamageNumberSystem } from '../ui/DamageNumbers';
 import { GameHUD } from '../ui/GameHUD';
-import { AudioManager } from '../audio/AudioManager';
+import { AudioManager, type MusicContext } from '../audio/AudioManager';
 import { SaveManager, type PlayerSaveData } from '../save/SaveManager';
 import { EventBus } from '../utils/EventBus';
 import type { ItemInstance } from '../loot/ItemGenerator';
@@ -69,6 +69,8 @@ export class Game {
   private questBeacon!: QuestBeacon;
   private screenFx!: ScreenEffects;
   private footstepTimer = 0;
+  private combatMusicTimer = 0;
+  private bossRoared = false;
   private nightFactor = 1;
   private stormSurvivalTimer = 0;
   private lastWeather = 'sunny';
@@ -336,20 +338,23 @@ export class Game {
           this.achievements.checkInventory(this.player.inventory.length);
         }
       }
-      this.audio.playHit();
+      this.audio.playEnemyDeath(e.tier);
       if (this.dayNight.isNight()) this.bus.emit('night_kill');
     });
 
     this.bus.on('player_hurt', () => {
-      this.audio.playHit();
+      this.audio.playPlayerHurt();
       this.screenFx.flashDamage();
       this.camera.punchZoom(4);
     });
     this.bus.on('combat_hit', (_n: unknown, _dmg: unknown, crit?: unknown) => {
+      this.combatMusicTimer = 4;
       if (crit) {
         this.audio.playCrit();
         this.screenFx.showCritBanner();
         this.camera.punchZoom(-3);
+      } else {
+        this.audio.playHit();
       }
     });
     this.bus.on('level_up', () => {
@@ -688,6 +693,8 @@ export class Game {
       const huntMsg = this.life.tryHuntOnAttack(this.player.position.x, this.player.position.z);
       if (huntMsg) this.hud.showInteractMessage(huntMsg);
       else if (this.player.attack()) {
+        this.audio.playSwing();
+        this.combatMusicTimer = 4;
         this.combat.processPlayerAttack(this.player, this.enemyManager.getAlive());
         this.particles.emitMagic(this.player.position);
       }
@@ -731,7 +738,7 @@ export class Game {
       this.dayNight.isNight(), this.weather.getGameplay().enemyAggro,
     );
     this.combat.update(dt);
-    this.audio.duckCombat(this.combat.screenShake > 0.1 || this.player.state === 'attack');
+    if (this.combatMusicTimer > 0) this.combatMusicTimer -= dt;
     this.achievements.checkCombo(this.player.combo);
     this.achievements.checkKillStreak(this.combat.killStreak);
     this.achievements.checkGold(this.player.gold);
@@ -744,7 +751,6 @@ export class Game {
 
     if (this.player.state === 'dead') {
       this.hud.showDeathScreen(this.player.deaths, this.player.level);
-      this.audio.duckCombat(false);
       setTimeout(() => {
         this.player.respawn(this.player.position.x, this.player.position.z, h);
         this.hud.hideDeathScreen();
@@ -872,6 +878,7 @@ export class Game {
       if (this.footstepTimer <= 0) {
         this.footstepTimer = input.sprint ? 0.28 : 0.38;
         this.particles.emitFootstep(this.player.position);
+        this.audio.playFootstep();
       }
     }
 
@@ -893,7 +900,14 @@ export class Game {
     this.nameplates?.setProjector(projector);
     this.nameplates?.update();
 
-    this.audio.startAmbient(biome.musicMood);
+    const musicCtx = this.buildMusicContext(biome.musicMood);
+    if (musicCtx.bossNearby && !this.bossRoared) {
+      this.bossRoared = true;
+      this.audio.playBossRoar();
+    } else if (!musicCtx.bossNearby) {
+      this.bossRoared = false;
+    }
+    this.audio.updateMusic(musicCtx, dt);
     this.audio.updateEnvironment(biome.musicMood, this.weather.current, this.weather.intensity);
     this.postFX.render(this.scene, this.camera.getCamera(), this.clock.elapsedTime);
 
@@ -904,10 +918,47 @@ export class Game {
     }
   };
 
+  private buildMusicContext(biomeMood: string): MusicContext {
+    const enemies = this.enemyManager.getAlive();
+    let nearestEnemy = Infinity;
+    let enemiesChasing = 0;
+    let enemiesAttacking = 0;
+    let bossNearby = false;
+    let eliteNearby = false;
+
+    for (const e of enemies) {
+      const d = this.player.position.distanceTo(e.position);
+      if (d < nearestEnemy) nearestEnemy = d;
+      if (e.aiState === 'chase') enemiesChasing++;
+      if (e.aiState === 'attack') enemiesAttacking++;
+      if (e.tier === 'boss' && d < 42) bossNearby = true;
+      if (e.tier === 'elite' && d < 28) eliteNearby = true;
+    }
+
+    return {
+      biomeMood,
+      nearestEnemy: enemies.length ? nearestEnemy : 999,
+      enemiesChasing,
+      enemiesAttacking,
+      bossNearby,
+      eliteNearby,
+      inCombat: this.combatMusicTimer > 0
+        || enemiesChasing > 0
+        || enemiesAttacking > 0
+        || this.player.state === 'attack',
+      arenaActive: this.activities.arena.active,
+      spireActive: this.activities.spire.active,
+      nightFactor: this.nightFactor,
+      weather: this.weather.current,
+    };
+  }
+
   private useSkill(index: number): void {
     const skills = CLASS_DEFINITIONS[this.player.classId].skills;
     const skill = skills[index];
     if (!skill || !this.player.useSkill(skill.id)) return;
+    this.audio.playSkillCast();
+    this.combatMusicTimer = 5;
     this.combat.processPlayerAttack(this.player, this.enemyManager.getAlive(), skill.id);
     this.particles.emitMagic(this.player.position, 0xaa88ff);
     if (skill.type === 'ultimate') this.camera.startBossCinematic(1.5);
@@ -1033,5 +1084,6 @@ export class Game {
     this.enemyManager?.dispose();
     this.postFX?.dispose();
     this.grass?.dispose();
+    this.audio?.dispose();
   }
 }
