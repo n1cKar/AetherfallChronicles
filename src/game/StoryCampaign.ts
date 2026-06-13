@@ -29,6 +29,26 @@ export interface CampaignObjective {
   marker?: { x: number; z: number };
 }
 
+export interface StoryCampaignSave {
+  activeQuestId: string | null;
+  campaignComplete: boolean;
+  currentChapterIndex: number;
+  totalKills: number;
+  chestsOpened: number;
+  lifeActions: number;
+  maxArenaWave: number;
+  quests: {
+    id: string;
+    complete: boolean;
+    objectives: {
+      id: string;
+      current: number;
+      done: boolean;
+      text?: string;
+    }[];
+  }[];
+}
+
 export const STORY_CHAPTERS: StoryChapter[] = [
   {
     id: 'ch1',
@@ -38,19 +58,19 @@ export const STORY_CHAPTERS: StoryChapter[] = [
   },
   {
     id: 'ch2',
-    title: 'Chapter II — Emberroot Depths',
+    title: 'Chapter II - Mossvault Depths',
     intro: 'Ancient caves pulse with void energy. Miners report crystal veins — and something hungry in the dark.',
     questIds: ['sq_ruins', 'sq_mine', 'sq_rain_gather', 'sq_cave', 'sq_storm_survivor', 'sq_arena', 'sq_elite_hunt', 'sq_grow_strong'],
   },
   {
     id: 'ch3',
-    title: 'Chapter III — Crown of Aether',
+    title: 'Chapter III - Crown of Aether',
     intro: 'The Astral Shrine can seal the rift — but only after the land is cleansed and the Titan falls.',
     questIds: ['sq_shrine', 'sq_blessing', 'sq_war_path', 'sq_final'],
   },
   {
     id: 'ch4',
-    title: 'Chapter IV — Eternal Aetherfall',
+    title: 'Chapter IV - Eternal Aetherfall',
     intro: 'The rift is sealed, yet Aetherfall endures. Hunt relics, master the arena, and become legend.',
     questIds: ['sq_dig_relics', 'sq_arena_master', 'sq_life_master', 'sq_weather_master', 'sq_endless_hunt'],
   },
@@ -62,7 +82,7 @@ export function buildCampaignQuests(): CampaignQuest[] {
       id: 'sq_intro',
       chapterId: 'ch1',
       title: 'Report to Captain Elara',
-      storyText: 'The outpost commander waits at the camp fire. The void rift above Crown Peak grows each sunset — hear the plan before you march.',
+      storyText: 'The outpost commander waits at the camp fire. The void rift above Crown Peak grows each sunset - hear the plan before you march.',
       objectives: [
         { id: 'o_talk', text: 'Speak with Captain Elara (0/1)', type: 'talk', target: 1, current: 0, done: false, marker: { x: 6, z: 4 } },
       ],
@@ -141,7 +161,7 @@ export function buildCampaignQuests(): CampaignQuest[] {
       id: 'sq_mine',
       chapterId: 'ch2',
       title: 'Crystal Veins',
-      storyText: 'Garrick senses ore near Emberroot. Mine crystal shards — they resonate with the shrine seal.',
+      storyText: 'Garrick senses ore near Mossvault. Mine crystal shards - they resonate with the shrine seal.',
       objectives: [
         { id: 'o_mine', text: 'Mine ore and crystals (0/4)', type: 'mine', target: 4, current: 0, done: false, marker: { x: 30, z: 12 } },
       ],
@@ -173,10 +193,10 @@ export function buildCampaignQuests(): CampaignQuest[] {
     {
       id: 'sq_cave',
       chapterId: 'ch2',
-      title: 'Emberroot Cave',
-      storyText: 'Void readings spike inside Emberroot. Delve deep — something pulses at the heart of the mountain.',
+      title: 'Mossvault Cave',
+      storyText: 'Void readings spike inside Mossvault. Delve deep - something pulses at the heart of the mountain.',
       objectives: [
-        { id: 'o_cave', text: 'Enter Emberroot Cave (0/1)', type: 'visit_cave', target: 1, current: 0, done: false, marker: { x: 28, z: 18 } },
+        { id: 'o_cave', text: 'Enter Mossvault Cave (0/1)', type: 'visit_cave', target: 1, current: 0, done: false, marker: { x: 28, z: 18 } },
       ],
       rewards: { gold: 90, xp: 180 },
       complete: false,
@@ -239,7 +259,7 @@ export function buildCampaignQuests(): CampaignQuest[] {
     {
       id: 'sq_war_path',
       chapterId: 'ch3',
-      title: 'Warpath of Aether',
+      title: 'Warpath of the Forge',
       storyText: 'Corruption spreads with every heartbeat. Purge twenty more voidspawn before marching on Crown Peak.',
       objectives: [
         { id: 'o_kill20', text: 'Total enemies slain (0/20)', type: 'kill', target: 20, current: 0, done: false },
@@ -251,7 +271,7 @@ export function buildCampaignQuests(): CampaignQuest[] {
       id: 'sq_final',
       chapterId: 'ch3',
       title: 'Silence the Corrupted Titan',
-      storyText: 'At Crown Peak the Corrupted Titan feeds the rift. End it — or every soul in Aetherfall is forfeit.',
+      storyText: 'At Crown Peak the Corrupted Titan feeds the rift. End it - or every soul in Aetherfall is forfeit.',
       objectives: [
         { id: 'o_boss', text: 'Defeat a world boss (0/1)', type: 'boss', target: 1, current: 0, done: false, marker: { x: -35, z: -28 } },
       ],
@@ -350,6 +370,55 @@ export class StoryCampaign {
     this.bus.on('weather_storm', () => this.progressObjective('weather_storm', 1));
     this.bus.on('weather_rain_gather', () => this.progressObjective('weather_rain', 1));
     this.bus.on('weather_snow_fish', () => this.progressObjective('weather_snow', 1));
+  }
+
+  load(data?: StoryCampaignSave): void {
+    if (!data) return;
+    this.activeQuestId = data.activeQuestId !== undefined ? data.activeQuestId : this.activeQuestId;
+    this.campaignComplete = Boolean(data.campaignComplete);
+    this.currentChapterIndex = data.currentChapterIndex ?? this.currentChapterIndex;
+    this.totalKills = data.totalKills ?? this.totalKills;
+    this.chestsOpened = data.chestsOpened ?? this.chestsOpened;
+    this.lifeActions = data.lifeActions ?? this.lifeActions;
+    this.maxArenaWave = data.maxArenaWave ?? this.maxArenaWave;
+
+    const savedQuests = new Map(data.quests?.map((q) => [q.id, q]) ?? []);
+    for (const quest of this.quests) {
+      const savedQuest = savedQuests.get(quest.id);
+      if (!savedQuest) continue;
+      quest.complete = Boolean(savedQuest.complete);
+      const savedObjectives = new Map(savedQuest.objectives?.map((o) => [o.id, o]) ?? []);
+      for (const objective of quest.objectives) {
+        const savedObjective = savedObjectives.get(objective.id);
+        if (!savedObjective) continue;
+        objective.current = Math.min(objective.target, Math.max(0, savedObjective.current ?? objective.current));
+        objective.done = Boolean(savedObjective.done);
+        objective.text = savedObjective.text ?? objective.text;
+        if (!savedObjective.text) this.updateObjText(objective);
+      }
+    }
+  }
+
+  toSave(): StoryCampaignSave {
+    return {
+      activeQuestId: this.activeQuestId,
+      campaignComplete: this.campaignComplete,
+      currentChapterIndex: this.currentChapterIndex,
+      totalKills: this.totalKills,
+      chestsOpened: this.chestsOpened,
+      lifeActions: this.lifeActions,
+      maxArenaWave: this.maxArenaWave,
+      quests: this.quests.map((q) => ({
+        id: q.id,
+        complete: q.complete,
+        objectives: q.objectives.map((o) => ({
+          id: o.id,
+          current: o.current,
+          done: o.done,
+          text: o.text,
+        })),
+      })),
+    };
   }
 
   getActiveQuest(): CampaignQuest | null {

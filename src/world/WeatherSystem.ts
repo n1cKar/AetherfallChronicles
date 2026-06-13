@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { clamp, lerp } from '../utils/math';
+import { lerp } from '../utils/math';
 import type { BiomeId } from '../config/constants';
 
 export type WeatherType =
@@ -37,7 +37,7 @@ const WEATHER_META: Record<WeatherType, { label: string; icon: string }> = {
   storm: { label: 'Storm', icon: '⛈' },
   mist: { label: 'Mist', icon: '🌫' },
   arcane_mist: { label: 'Arcane Mist', icon: '✨' },
-  clear: { label: 'Clear', icon: '☀' },
+  clear: { label: 'Clear Night', icon: '☾' },
 };
 
 export class WeatherSystem {
@@ -55,6 +55,7 @@ export class WeatherSystem {
   private stormTimer = 0;
   private onChange?: (w: WeatherType) => void;
   private lastAnnounced: WeatherType = 'sunny';
+  private weatherTime = 0;
 
   constructor(private scene: THREE.Scene, particleCount = 500) {
     this.createPrecip(particleCount);
@@ -126,23 +127,35 @@ export class WeatherSystem {
       corrupted: ['arcane_mist', 'storm', 'heavy_rain', 'overcast', 'mist'],
     };
     const pool = pools[biome] ?? pools.forest;
-    if (roll < 0.25) return 'sunny';
+    const clearChance: Partial<Record<BiomeId, number>> = {
+      forest: 0.22,
+      swamp: 0.08,
+      frozen: 0.06,
+      mountain: 0.1,
+      volcanic: 0.08,
+      desert: 0.32,
+      hell: 0.04,
+      magical: 0.18,
+      corrupted: 0.04,
+    };
+    if (roll < (clearChance[biome] ?? 0.18)) return 'sunny';
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
   update(dt: number, playerPos: THREE.Vector3, biome: BiomeId, isNight: boolean): void {
+    this.weatherTime += dt;
     this.timer -= dt;
     if (this.timer <= 0) {
-      this.timer = 55 + Math.random() * 80;
-      if (Math.random() < 0.42) {
+      this.timer = 75 + Math.random() * 110;
+      if (Math.random() < 0.56) {
         this.target = this.pickWeather(biome);
-        this.targetIntensity = this.target === 'sunny' ? 0.15 : 0.45 + Math.random() * 0.55;
+        this.targetIntensity = this.target === 'sunny' ? 0.08 + Math.random() * 0.12 : 0.38 + Math.random() * 0.5;
         if (this.target === 'storm' || this.target === 'blizzard') {
           this.targetIntensity = 0.75 + Math.random() * 0.25;
         }
       } else {
-        this.target = 'sunny';
-        this.targetIntensity = 0.1;
+        this.target = isNight ? 'clear' : 'sunny';
+        this.targetIntensity = isNight ? 0.04 : 0.08;
       }
       if (isNight && Math.random() < 0.3 && this.target === 'sunny') {
         this.target = 'clear';
@@ -150,7 +163,6 @@ export class WeatherSystem {
       }
     }
 
-    const prev = this.current;
     this.intensity = lerp(this.intensity, this.targetIntensity, dt * 0.35);
     if (this.intensity < 0.08 && this.targetIntensity < 0.15) {
       this.current = this.target === 'sunny' ? 'sunny' : 'clear';
@@ -158,15 +170,16 @@ export class WeatherSystem {
       this.current = this.target;
     }
 
-    if (this.current !== prev && this.intensity > 0.2) {
+    if (this.current !== this.lastAnnounced && this.intensity > 0.16) {
       this.onChange?.(this.current);
+      this.lastAnnounced = this.current;
     }
 
     // Wind vector shifts over time
     const windTarget = this.getWindStrength();
     this.windStrength = lerp(this.windStrength, windTarget, dt * 0.4);
-    this.windX = Math.sin(Date.now() * 0.0004) * this.windStrength * 8;
-    this.windZ = Math.cos(Date.now() * 0.00035) * this.windStrength * 6;
+    this.windX = Math.sin(this.weatherTime * 0.7) * this.windStrength * 8;
+    this.windZ = Math.cos(this.weatherTime * 0.55) * this.windStrength * 6;
 
     this.updatePrecip(dt, playerPos);
     this.updateWindLeaves(dt, playerPos);
@@ -200,19 +213,20 @@ export class WeatherSystem {
 
     const mat = this.precip.material as THREE.PointsMaterial;
     const isSnow = this.current === 'snow' || this.current === 'blizzard';
+    const heavy = this.current === 'heavy_rain' || this.current === 'storm' || this.current === 'blizzard';
     mat.color.setHex(isSnow ? 0xffffff : 0x88bbee);
-    mat.size = isSnow ? 0.18 : 0.12;
-    mat.opacity = 0.4 + this.intensity * 0.45;
+    mat.size = isSnow ? 0.2 : heavy ? 0.16 : 0.11;
+    mat.opacity = 0.32 + this.intensity * (heavy ? 0.52 : 0.38);
 
-    const fallSpeed = isSnow ? 2.5 + this.intensity * 2 : 14 + this.intensity * 8;
+    const fallSpeed = isSnow ? 2.2 + this.intensity * 2.4 : heavy ? 18 + this.intensity * 10 : 13 + this.intensity * 7;
     const pos = this.precip.geometry.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < pos.count; i++) {
       let y = pos.getY(i) - dt * fallSpeed;
       let x = pos.getX(i) + this.windX * dt * (isSnow ? 0.5 : 1);
       let z = pos.getZ(i) + this.windZ * dt * (isSnow ? 0.5 : 1);
-      if (y < 0) {
-        x = playerPos.x + (Math.random() - 0.5) * 45;
-        z = playerPos.z + (Math.random() - 0.5) * 45;
+      if (y < 0 || Math.abs(x) > 28 || Math.abs(z) > 28) {
+        x = (Math.random() - 0.5) * 52;
+        z = (Math.random() - 0.5) * 52;
         y = 14 + Math.random() * 12;
       }
       pos.setX(i, x);
@@ -235,9 +249,10 @@ export class WeatherSystem {
     for (let i = 0; i < pos.count; i++) {
       let x = pos.getX(i) + (this.windX + 2) * dt;
       let z = pos.getZ(i) + this.windZ * dt;
-      let y = pos.getY(i) + Math.sin(Date.now() * 0.002 + i) * dt * 0.5;
-      if (Math.abs(x - playerPos.x) > 30) x = playerPos.x - Math.sign(x - playerPos.x) * 28;
-      if (Math.abs(z - playerPos.z) > 30) z = playerPos.z - Math.sign(z - playerPos.z) * 28;
+      let y = pos.getY(i) + Math.sin(this.weatherTime * 1.8 + i) * dt * 0.5;
+      if (Math.abs(x) > 30) x = -Math.sign(x) * 28;
+      if (Math.abs(z) > 30) z = -Math.sign(z) * 28;
+      if (y < 1.2 || y > 9) y = 2 + Math.random() * 5;
       pos.setX(i, x);
       pos.setY(i, y);
       pos.setZ(i, z);
@@ -248,22 +263,22 @@ export class WeatherSystem {
 
   getFogMultiplier(): number {
     const m: Partial<Record<WeatherType, number>> = {
-      mist: 1.6, arcane_mist: 1.7, overcast: 1.2, blizzard: 1.5,
-      heavy_rain: 1.35, storm: 1.45, cloudy: 1.1,
+      mist: 1.18, arcane_mist: 1.22, overcast: 1.04, blizzard: 1.14,
+      heavy_rain: 1.08, storm: 1.12, cloudy: 1.02,
     };
-    return (m[this.current] ?? 1) * (1 + this.intensity * 0.25);
+    return (m[this.current] ?? 1) * (1 + this.intensity * 0.08);
   }
 
   getSkyDarken(): number {
     const d: Partial<Record<WeatherType, number>> = {
-      overcast: 0.15, cloudy: 0.08, storm: 0.25, heavy_rain: 0.18,
-      blizzard: 0.2, mist: 0.12, arcane_mist: 0.15,
+      overcast: 0.05, cloudy: 0.02, storm: 0.1, heavy_rain: 0.07,
+      blizzard: 0.08, mist: 0.045, arcane_mist: 0.055,
     };
     return d[this.current] ?? 0;
   }
 
   getGameplay(): WeatherGameplay {
-    const meta = WEATHER_META[this.current === 'clear' ? 'sunny' : this.current];
+    const meta = WEATHER_META[this.current];
     let moveSpeed = 1;
     let visibility = 1;
     let fishingBonus = 0;

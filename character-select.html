@@ -6,45 +6,11 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#0a0c14" />
-  <title>Choose Your Path — Aetherfall Chronicles</title>
-  <link rel="stylesheet" href="/src/styles/global.css" />
-  <link rel="stylesheet" href="/src/styles/menu.css" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <title>Choose Your Legend - Aetherfall Chronicles</title>
 </head>
-<body class="char-select-page">
-  <div class="splash-bg"></div>
-  <main class="char-select-content">
-    <h1 class="fantasy-title page-title">Choose Your Path</h1>
-    <p class="subtitle">Five ascendants await. Your legend begins now.</p>
-
-    <section class="join-panel panel">
-      <label class="join-label" for="player-name">Display Name</label>
-      <input id="player-name" class="join-input" type="text" maxlength="16" placeholder="2–16 characters" autocomplete="username" />
-
-      <div class="mode-row">
-        <label class="mode-option">
-          <input type="radio" name="play-mode" value="solo" checked />
-          <span>Solo Adventure</span>
-        </label>
-        <label class="mode-option">
-          <input type="radio" name="play-mode" value="online" />
-          <span>Online Realm (MMO)</span>
-        </label>
-      </div>
-
-      <div id="server-row" class="server-row hidden">
-        <label class="join-label" for="server-url">Realm Server</label>
-        <input id="server-url" class="join-input" type="text" placeholder="ws://localhost:2567" />
-        <p class="join-hint">Run <code>npm run dev</code> to start game + server together.</p>
-      </div>
-    </section>
-
-    <div id="class-grid" class="class-grid"></div>
-    <div class="char-actions">
-      <a href="/index.html" class="btn btn-secondary">Back</a>
-      <button id="btn-start" class="btn" disabled>Begin Journey</button>
-    </div>
-  </main>
-  <footer class="credits-footer"><strong>Developed by n1ckar</strong></footer>
+<body>
+  <div id="character-root"></div>
   <script type="module" src="/src/pages/character-select.ts"></script>
 </body>
 </html>

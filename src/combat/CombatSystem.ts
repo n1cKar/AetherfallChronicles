@@ -60,7 +60,9 @@ export class CombatSystem {
       if (dist > range) continue;
 
       const crit = Math.random() < player.critChance;
+      const element = this.resolveElement(player, skillId);
       let dmg = player.damage * mult * (0.9 + Math.random() * 0.2);
+      if (element.bonus > 0) dmg *= 1 + element.bonus;
       if (crit) dmg *= 2.1;
       this.lastCrit = crit;
       const kbX = dx / (dist || 1);
@@ -70,8 +72,8 @@ export class CombatSystem {
       player.applyLifesteal(actual);
       hits.push(enemy);
 
-      this.particles.emitHit(enemy.position, crit ? 0xffee44 : enemy.tier === 'boss' ? 0xff8844 : 0xffcc66);
-      if (crit) this.particles.emitMagic(enemy.position, 0xffdd66);
+      this.particles.emitHit(enemy.position, crit ? 0xffee44 : element.color);
+      if (crit || element.bonus > 0) this.particles.emitMagic(enemy.position, crit ? 0xffdd66 : element.color);
       this.damageNumbers.spawn(enemy.position, actual, crit || enemy.tier !== 'normal');
       this.applyHitFeel(
         crit ? HIT_STOP_HEAVY * 0.7 : enemy.tier === 'boss' ? HIT_STOP_HEAVY : HIT_STOP_LIGHT,
@@ -117,5 +119,32 @@ export class CombatSystem {
   private applyHitFeel(stop: number, shake: number): void {
     this.hitStop = Math.max(this.hitStop, stop);
     this.screenShake = Math.max(this.screenShake, shake);
+  }
+
+  private resolveElement(player: Player, skillId?: string): { color: number; bonus: number } {
+    const skillElement = skillId?.includes('fire') || skillId === 'meteor' ? 'fire'
+      : skillId?.includes('frost') ? 'frost'
+        : skillId?.includes('arc') || skillId?.includes('storm') ? 'storm'
+          : skillId?.includes('poison') || skillId === 'trap' ? 'poison'
+            : '';
+    const totals: Record<string, number> = { fire: 0, frost: 0, storm: 0, poison: 0 };
+    for (const item of Object.values(player.equipped)) {
+      for (const aff of item?.affixes ?? []) {
+        if (aff.stat === 'elemental_fire') totals.fire += aff.value;
+        if (aff.stat === 'elemental_frost') totals.frost += aff.value;
+        if (aff.stat === 'elemental_storm') totals.storm += aff.value;
+        if (aff.stat === 'elemental_poison') totals.poison += aff.value;
+      }
+    }
+    const best = Object.entries(totals).sort((a, b) => b[1] - a[1])[0];
+    const element = skillElement || (best?.[1] > 0 ? best[0] : '');
+    const colors: Record<string, number> = {
+      fire: 0xff5a2e,
+      frost: 0x8fd8ff,
+      storm: 0xd4b6ff,
+      poison: 0x7dff71,
+    };
+    const bonus = Math.min(0.45, ((element ? totals[element] : 0) || 0) * 0.003);
+    return { color: colors[element] ?? 0xffcc66, bonus };
   }
 }

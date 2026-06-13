@@ -2,6 +2,6 @@ import '../styles/global.css';
 import '../styles/menu.css';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { SplashMenu } from '../react/SplashMenu';
+import { CreditsPage } from '../react/CreditsPage';
 
-createRoot(document.getElementById('splash-root')!).render(createElement(SplashMenu));
+createRoot(document.getElementById('credits-root')!).render(createElement(CreditsPage));

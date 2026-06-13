@@ -7,7 +7,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#0a0c14" />
-  <title>Aetherfall Chronicles — Play</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <title>Aetherfall Chronicles - Play</title>
   <link rel="stylesheet" href="/src/styles/global.css" />
   <link rel="stylesheet" href="/src/styles/game.css" />
 </head>
@@ -52,6 +53,7 @@
           <span><i class="dot cave"></i> Cave</span>
           <span><i class="dot fish"></i> Fish</span>
           <span><i class="dot gather"></i> Gather</span>
+          <span><i class="dot puzzle"></i> Events</span>
         </div>
       </div>
       <div id="quest-tracker" class="quest-tracker panel"></div>
@@ -148,10 +150,21 @@
   <div id="pause-menu" class="pause-menu">
     <div class="pause-panel panel">
       <h2 class="fantasy-title">Paused</h2>
+      <button id="btn-controls-menu" class="btn btn-secondary" type="button">Controls</button>
       <a href="/index.html" class="btn btn-secondary">Main Menu</a>
       <a href="/settings.html" class="btn btn-secondary">Settings</a>
       <button id="btn-resume" class="btn">Resume</button>
     </div>
+  </div>
+
+  <div id="controls-panel" class="controls-panel panel">
+    <header>
+      <h2 class="fantasy-title">Controls</h2>
+      <button id="controls-close" class="hud-btn" type="button">✕</button>
+    </header>
+    <div id="controls-list" class="controls-list"></div>
+    <div id="controls-capture" class="controls-capture">Select a control to rebind.</div>
+    <button id="controls-reset" class="btn btn-secondary" type="button">Reset Defaults</button>
   </div>
 
   <div id="boss-intro" class="boss-intro">
@@ -218,7 +231,7 @@
       </div>
     </header>
     <canvas id="worldmap-canvas" width="900" height="560"></canvas>
-    <p class="worldmap-help">Drag with mouse to pan, scroll to zoom, press M to toggle.</p>
+    <p class="worldmap-help">Gold marker: you | Cyan marker: objective | Drag to scout, scroll to zoom.</p>
   </div>
 
   <div id="dialogue-panel" class="dialogue-panel panel">
@@ -276,7 +289,7 @@
   <div id="victory-screen" class="victory-screen">
     <div class="victory-panel panel">
       <h1 class="fantasy-title">Campaign Complete</h1>
-      <p>You have silenced the Void. The Aether is yours to explore forever.</p>
+      <p>You have silenced the Void. Aetherfall is yours to explore forever.</p>
       <p class="victory-credit">Developed by n1ckar</p>
       <a href="/index.html" class="btn">Return to Title</a>
     </div>

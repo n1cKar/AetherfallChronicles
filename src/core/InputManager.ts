@@ -1,4 +1,5 @@
 import { TouchControls } from '../ui/TouchControls';
+import { normalizeKeyBindings, type ControlAction, type KeyBindings } from './KeyBindings';
 
 export interface InputState {
   moveX: number;
@@ -14,6 +15,9 @@ export interface InputState {
   action: boolean;
   craftPanel: boolean;
   upgradePanel: boolean;
+  inventoryPanel: boolean;
+  journalPanel: boolean;
+  worldMapPanel: boolean;
   vault: boolean;
   pause: boolean;
   cameraRotate: number;
@@ -22,20 +26,28 @@ export interface InputState {
 
 export class InputManager {
   private keys = new Set<string>();
+  private pressedThisFrame = new Set<string>();
+  private keyBindings: KeyBindings;
   private touch: TouchControls;
   cameraRotate = 0;
   cameraZoom = 0;
 
-  constructor(private canvas: HTMLElement) {
+  constructor(private canvas: HTMLElement, keyBindings?: KeyBindings) {
+    this.keyBindings = normalizeKeyBindings(keyBindings);
     this.touch = new TouchControls(canvas);
 
     window.addEventListener('keydown', (e) => {
+      if (this.isTextEntryTarget(e.target)) return;
+      if (!e.repeat) this.pressedThisFrame.add(e.code);
       this.keys.add(e.code);
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+      if (this.shouldPreventDefault(e.code)) {
         e.preventDefault();
       }
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => {
+      if (this.isTextEntryTarget(e.target)) return;
+      this.keys.delete(e.code);
+    });
 
     canvas.addEventListener('wheel', (e) => {
       this.cameraZoom += e.deltaY * 0.01;
@@ -46,7 +58,10 @@ export class InputManager {
     let lastX = 0;
     canvas.addEventListener('mousedown', (e) => {
       if (e.button === 2) { isDragging = true; lastX = e.clientX; }
-      if (e.button === 0) this.keys.add('Mouse0');
+      if (e.button === 0) {
+        this.keys.add('Mouse0');
+        this.pressedThisFrame.add('Mouse0');
+      }
     });
     window.addEventListener('mouseup', (e) => {
       isDragging = false;
@@ -61,16 +76,22 @@ export class InputManager {
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  setKeyBindings(keyBindings: KeyBindings): void {
+    this.keyBindings = normalizeKeyBindings(keyBindings);
+    this.keys.clear();
+    this.pressedThisFrame.clear();
+  }
+
   poll(): InputState {
     const gp = this.pollGamepad();
     const touch = this.touch.poll();
 
     let moveX = 0;
     let moveZ = 0;
-    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) moveZ -= 1;
-    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) moveZ += 1;
-    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) moveX -= 1;
-    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) moveX += 1;
+    if (this.isHeld('moveForward')) moveZ -= 1;
+    if (this.isHeld('moveBackward')) moveZ += 1;
+    if (this.isHeld('moveLeft')) moveX -= 1;
+    if (this.isHeld('moveRight')) moveX += 1;
 
     if (touch?.joystickActive) {
       moveX = touch.moveX;
@@ -90,25 +111,49 @@ export class InputManager {
     this.cameraRotate = 0;
     this.cameraZoom = 0;
 
-    return {
+    const state = {
       moveX,
       moveZ,
-      attack: this.keys.has('Mouse0') || this.keys.has('KeyJ') || gp?.buttons[7]?.pressed || touch?.attack || false,
-      dodge: this.keys.has('Space') || this.keys.has('KeyK') || gp?.buttons[1]?.pressed || touch?.dodge || false,
-      sprint: this.keys.has('ShiftLeft') || gp?.buttons[10]?.pressed || touch?.sprint || false,
-      skill1: this.keys.has('Digit1') || gp?.buttons[2]?.pressed || touch?.skill1 || false,
-      skill2: this.keys.has('Digit2') || gp?.buttons[3]?.pressed || touch?.skill2 || false,
-      skill3: this.keys.has('Digit3') || gp?.buttons[0]?.pressed || touch?.skill3 || false,
-      skill4: this.keys.has('Digit4') || gp?.buttons[4]?.pressed || touch?.skill4 || false,
-      interact: this.keys.has('KeyE') || gp?.buttons[5]?.pressed || touch?.interact || false,
-      action: this.keys.has('KeyF') || gp?.buttons[6]?.pressed || touch?.action || false,
-      craftPanel: this.keys.has('KeyC') || false,
-      upgradePanel: this.keys.has('KeyU') || false,
-      vault: this.keys.has('KeyV') || gp?.buttons[8]?.pressed || false,
-      pause: this.keys.has('Escape') || gp?.buttons[9]?.pressed || false,
+      attack: this.isHeld('attack') || gp?.buttons[7]?.pressed || touch?.attack || false,
+      dodge: this.isHeld('dodge') || gp?.buttons[1]?.pressed || touch?.dodge || false,
+      sprint: this.isHeld('sprint') || gp?.buttons[10]?.pressed || touch?.sprint || false,
+      skill1: this.isHeld('skill1') || gp?.buttons[2]?.pressed || touch?.skill1 || false,
+      skill2: this.isHeld('skill2') || gp?.buttons[3]?.pressed || touch?.skill2 || false,
+      skill3: this.isHeld('skill3') || gp?.buttons[0]?.pressed || touch?.skill3 || false,
+      skill4: this.isHeld('skill4') || gp?.buttons[4]?.pressed || touch?.skill4 || false,
+      interact: this.isHeld('interact') || gp?.buttons[5]?.pressed || touch?.interact || false,
+      action: this.isHeld('action') || gp?.buttons[6]?.pressed || touch?.action || false,
+      craftPanel: this.wasPressed('craftPanel'),
+      upgradePanel: this.wasPressed('upgradePanel'),
+      inventoryPanel: this.wasPressed('inventoryPanel'),
+      journalPanel: this.wasPressed('journalPanel'),
+      worldMapPanel: this.wasPressed('worldMapPanel'),
+      vault: this.isHeld('vault') || gp?.buttons[8]?.pressed || false,
+      pause: this.wasPressed('pause') || gp?.buttons[9]?.pressed || false,
       cameraRotate: rot,
       cameraZoom: zoom,
     };
+    this.pressedThisFrame.clear();
+    return state;
+  }
+
+  private isHeld(action: ControlAction): boolean {
+    return this.keyBindings[action].some((code) => this.keys.has(code));
+  }
+
+  private wasPressed(action: ControlAction): boolean {
+    return this.keyBindings[action].some((code) => this.pressedThisFrame.has(code));
+  }
+
+  private shouldPreventDefault(code: string): boolean {
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(code)) return true;
+    return Object.values(this.keyBindings).some((codes) => codes.includes(code));
+  }
+
+  private isTextEntryTarget(target: EventTarget | null): boolean {
+    const el = target instanceof HTMLElement ? target : null;
+    if (!el) return false;
+    return Boolean(el.closest('input, textarea, select, [contenteditable="true"]'));
   }
 
   private pollGamepad(): Gamepad | null {

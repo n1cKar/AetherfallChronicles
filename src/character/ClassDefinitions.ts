@@ -27,7 +27,7 @@ export const CLASS_DEFINITIONS: Record<ClassId, ClassDefinition> = {
   sentinel: {
     id: 'sentinel',
     name: 'Sentinel',
-    title: 'Shield of Aetherfall',
+    title: 'Shield of the Forge',
     description: 'Unyielding frontline warrior with crushing combos and iron defense.',
     primaryColor: 0x4a6a9a,
     accentColor: 0xc0a050,

@@ -1,4 +1,4 @@
-/** Meta progression — unlock tracking & rewards. Developed by n1ckar */
+/** Meta progression - unlock tracking and rewards. Developed by n1ckar */
 
 import type { EventBus } from '../utils/EventBus';
 
@@ -11,27 +11,36 @@ export interface AchievementDef {
   rewardGold?: number;
 }
 
+export interface AchievementSave {
+  unlocked: string[];
+  nightKills: number;
+  biomesVisited: string[];
+}
+
 export const ACHIEVEMENTS: AchievementDef[] = [
-  { id: 'first_blood', title: 'First Blood', description: 'Slay your first foe.', icon: '⚔', rewardGold: 15 },
-  { id: 'combo_master', title: 'Combo Artist', description: 'Reach a 5-hit combo.', icon: '🔥', rewardGold: 25 },
-  { id: 'rampage', title: 'Rampage', description: 'Achieve a 10-kill streak.', icon: '💀', rewardGold: 50 },
-  { id: 'night_hunter', title: 'Night Hunter', description: 'Slay 10 enemies after dark.', icon: '🌙', rewardGold: 40 },
-  { id: 'storm_chaser', title: 'Storm Chaser', description: 'Survive a thunderstorm.', icon: '⛈', rewardGold: 35 },
-  { id: 'angler', title: 'Angler', description: 'Catch your first fish.', icon: '🎣', rewardGold: 20 },
-  { id: 'artisan', title: 'Artisan', description: 'Craft your first item.', icon: '🔨', rewardGold: 20 },
-  { id: 'wealthy', title: 'Treasure Hoarder', description: 'Accumulate 1,000 gold.', icon: '💰', rewardGold: 0 },
-  { id: 'veteran', title: 'Veteran', description: 'Reach level 10.', icon: '⭐', rewardGold: 100 },
-  { id: 'champion', title: 'Champion', description: 'Reach level 20.', icon: '🏆', rewardGold: 250 },
-  { id: 'boss_slayer', title: 'Boss Slayer', description: 'Defeat a world boss.', icon: '👹', rewardGold: 150 },
-  { id: 'arena_warrior', title: 'Arena Warrior', description: 'Clear arena wave 5.', icon: '🏟', rewardGold: 80 },
-  { id: 'collector', title: 'Collector', description: 'Hold 25 items in inventory.', icon: '🎒', rewardGold: 60 },
-  { id: 'legendary_find', title: 'Legendary Find', description: 'Loot a legendary item.', icon: '✨', rewardGold: 120 },
-  { id: 'campaign_hero', title: 'Voidbreaker', description: 'Complete the campaign.', icon: '🜂', rewardGold: 500 },
-  { id: 'explorer', title: 'Realm Explorer', description: 'Visit 5 different biomes.', icon: '🗺', rewardGold: 75 },
-  { id: 'spire_climber', title: 'Spire Climber', description: 'Clear floor 5 of the Aether Spire.', icon: '🗼', rewardGold: 200 },
-  { id: 'social', title: 'Realm Socialite', description: 'Send a message in the online realm.', icon: '💬', rewardGold: 10 },
-  { id: 'perfectionist', title: 'Perfectionist', description: 'Raise any attribute to 25.', icon: '💎', rewardGold: 100, secret: true },
-  { id: 'mythic_hunter', title: 'Mythic Hunter', description: 'Loot a mythic or higher item.', icon: '🌟', rewardGold: 300, secret: true },
+  { id: 'first_blood', title: 'First Blood', description: 'Slay your first foe.', icon: 'X', rewardGold: 15 },
+  { id: 'combo_master', title: 'Combo Artist', description: 'Reach a 5-hit combo.', icon: '5x', rewardGold: 25 },
+  { id: 'rampage', title: 'Rampage', description: 'Achieve a 10-kill streak.', icon: '10', rewardGold: 50 },
+  { id: 'night_hunter', title: 'Night Hunter', description: 'Slay 10 enemies after dark.', icon: 'N', rewardGold: 40 },
+  { id: 'storm_chaser', title: 'Storm Chaser', description: 'Survive a thunderstorm.', icon: 'S', rewardGold: 35 },
+  { id: 'angler', title: 'Angler', description: 'Catch your first fish.', icon: 'F', rewardGold: 20 },
+  { id: 'artisan', title: 'Artisan', description: 'Craft your first item.', icon: 'C', rewardGold: 20 },
+  { id: 'wealthy', title: 'Treasure Hoarder', description: 'Accumulate 1,000 gold.', icon: 'G', rewardGold: 0 },
+  { id: 'veteran', title: 'Veteran', description: 'Reach level 10.', icon: '10', rewardGold: 100 },
+  { id: 'champion', title: 'Champion', description: 'Reach level 20.', icon: '20', rewardGold: 250 },
+  { id: 'boss_slayer', title: 'Boss Slayer', description: 'Defeat a world boss.', icon: 'B', rewardGold: 150 },
+  { id: 'arena_warrior', title: 'Arena Warrior', description: 'Clear arena wave 5.', icon: 'A', rewardGold: 80 },
+  { id: 'collector', title: 'Collector', description: 'Hold 25 items in inventory.', icon: 'I', rewardGold: 60 },
+  { id: 'legendary_find', title: 'Legendary Find', description: 'Loot a legendary item.', icon: 'L', rewardGold: 120 },
+  { id: 'campaign_hero', title: 'Voidbreaker', description: 'Complete the campaign.', icon: 'V', rewardGold: 500 },
+  { id: 'explorer', title: 'Realm Explorer', description: 'Visit 5 different biomes.', icon: 'M', rewardGold: 75 },
+  { id: 'spire_climber', title: 'Spire Climber', description: 'Clear floor 5 of the Aether Spire.', icon: '^', rewardGold: 200 },
+  { id: 'dungeon_delver', title: 'Dungeon Delver', description: 'Enter your first forged dungeon.', icon: '[]', rewardGold: 35 },
+  { id: 'secret_finder', title: 'Secret Finder', description: 'Open a hidden dungeon cache.', icon: '?', rewardGold: 80 },
+  { id: 'rift_sealer', title: 'Rift Sealer', description: 'Complete an Aether Rift Trial.', icon: 'R', rewardGold: 90 },
+  { id: 'social', title: 'Realm Socialite', description: 'Send a message in the online realm.', icon: '@', rewardGold: 10 },
+  { id: 'perfectionist', title: 'Perfectionist', description: 'Raise any attribute to 25.', icon: '+', rewardGold: 100, secret: true },
+  { id: 'mythical_hunter', title: 'Mythical Hunter', description: 'Loot a mythical item.', icon: '*', rewardGold: 300, secret: true },
 ];
 
 export class AchievementSystem {
@@ -46,11 +55,32 @@ export class AchievementSystem {
   }
 
   load(ids: string[]): void {
-    for (const id of ids) this.unlocked.add(id);
+    for (const id of ids) {
+      this.unlocked.add(id === 'mythic_hunter' ? 'mythical_hunter' : id);
+    }
+  }
+
+  loadState(data?: AchievementSave | string[]): void {
+    if (!data) return;
+    if (Array.isArray(data)) {
+      this.load(data);
+      return;
+    }
+    this.load(data.unlocked ?? []);
+    this.nightKills = data.nightKills ?? this.nightKills;
+    this.biomesVisited = new Set(data.biomesVisited ?? []);
   }
 
   export(): string[] {
     return [...this.unlocked];
+  }
+
+  toSave(): AchievementSave {
+    return {
+      unlocked: this.export(),
+      nightKills: this.nightKills,
+      biomesVisited: [...this.biomesVisited],
+    };
   }
 
   getProgress(): { unlocked: number; total: number } {
@@ -91,13 +121,15 @@ export class AchievementSystem {
     this.bus.on('item_crafted', () => this.unlock('artisan'));
     this.bus.on('boss_killed', () => this.unlock('boss_slayer'));
     this.bus.on('campaign_complete', () => this.unlock('campaign_hero'));
-    this.bus.on('weather_snow_fish', () => { /* story hook */ });
     this.bus.on('player_chat', () => this.unlock('social'));
     this.bus.on('spire_floor', (floor: unknown) => {
       if (Number(floor) >= 5) this.unlock('spire_climber');
     });
     this.bus.on('loot_legendary', () => this.unlock('legendary_find'));
-    this.bus.on('loot_mythic', () => this.unlock('mythic_hunter'));
+    this.bus.on('loot_mythical', () => this.unlock('mythical_hunter'));
+    this.bus.on('dungeon_entered', () => this.unlock('dungeon_delver'));
+    this.bus.on('secret_found', () => this.unlock('secret_finder'));
+    this.bus.on('rift_complete', () => this.unlock('rift_sealer'));
     this.bus.on('biome_entered', (id: unknown) => {
       this.biomesVisited.add(String(id));
       if (this.biomesVisited.size >= 5) this.unlock('explorer');

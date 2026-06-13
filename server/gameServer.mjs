@@ -1,5 +1,5 @@
 /**
- * Aetherfall Chronicles — shared-world WebSocket server (MMO-lite).
+ * Aetherfall Chronicles - shared-world WebSocket server (MMO-lite).
  * Developed by n1ckar
  *
  * Run: npm run server  (default port 2567)
@@ -178,7 +178,7 @@ setInterval(() => {
 }, 30000);
 
 httpServer.listen(PORT, () => {
-  console.log(`Aetherfall server on ws://localhost:${PORT}  (seed ${WORLD_SEED})`);
+  console.log(`Aetherfall Chronicles server on ws://localhost:${PORT}  (seed ${WORLD_SEED})`);
   console.log('Developed by n1ckar');
 });
 

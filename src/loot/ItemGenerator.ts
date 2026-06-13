@@ -2,6 +2,7 @@ import {
   RARITIES,
   RARITY_WEIGHTS,
   WEAPON_TYPES,
+  normalizeRarity,
   type Rarity,
   type WeaponType,
 } from '../config/constants';
@@ -25,14 +26,17 @@ export interface ItemInstance {
   affixes: ItemAffix[];
   setId?: string;
   legendaryPower?: string;
+  enchantments?: string[];
+  upgradeLevel?: number;
+  specialEffect?: string;
   dps: number;
   sellValue: number;
 }
 
-const PREFIXES = ['Aether', 'Void', 'Storm', 'Ember', 'Frost', 'Soul', 'Rune', 'Star', 'Doom', 'Grace'];
+const PREFIXES = ['Forge', 'Void', 'Storm', 'Ember', 'Frost', 'Soul', 'Rune', 'Star', 'Doom', 'Grace'];
 const SUFFIXES = ['Edge', 'Fang', 'Heart', 'Crown', 'Shroud', 'Spire', 'Brand', 'Wing', 'Core', 'Bane'];
 
-const AFFIX_POOL: Omit<ItemAffix, 'value'>[] = [
+const AFFIX_POOL: ItemAffix[] = [
   { id: 'str', name: 'of Might', stat: 'strength', value: 0 },
   { id: 'dex', name: 'of Swiftness', stat: 'dexterity', value: 0 },
   { id: 'int', name: 'of Arcana', stat: 'intelligence', value: 0 },
@@ -41,6 +45,10 @@ const AFFIX_POOL: Omit<ItemAffix, 'value'>[] = [
   { id: 'lifesteal', name: 'of Leech', stat: 'lifesteal', value: 0 },
   { id: 'cdr', name: 'of Haste', stat: 'cooldownReduction', value: 0 },
   { id: 'aoe', name: 'of Ruin', stat: 'areaDamage', value: 0 },
+  { id: 'fire', name: 'of Wildfire', stat: 'elemental_fire', value: 0 },
+  { id: 'frost', name: 'of Frostbite', stat: 'elemental_frost', value: 0 },
+  { id: 'storm', name: 'of Storms', stat: 'elemental_storm', value: 0 },
+  { id: 'poison', name: 'of Venom', stat: 'elemental_poison', value: 0 },
 ];
 
 const LEGENDARY_POWERS = [
@@ -51,13 +59,22 @@ const LEGENDARY_POWERS = [
   'Time Dilation Aura',
 ];
 
+const ENCHANTMENTS = [
+  'Radiant Criticals',
+  'Echoing Strike',
+  'Soul Magnet',
+  'Guardian Ward',
+  'Treasure Pulse',
+  'Rolling Thunder',
+];
+
 const SET_ITEMS = ['Aetherbound', 'Voidwalker', 'Stormcaller'];
 
 let itemCounter = 0;
 
 export class ItemGenerator {
   static generate(level: number, forceRarity?: Rarity): ItemInstance {
-    const rarity = forceRarity ?? pickWeighted(RARITY_WEIGHTS);
+    const rarity = forceRarity ? normalizeRarity(forceRarity) : pickWeighted(RARITY_WEIGHTS);
     const weaponType = WEAPON_TYPES[Math.floor(Math.random() * WEAPON_TYPES.length)];
     const prefix = PREFIXES[Math.floor(Math.random() * PREFIXES.length)];
     const suffix = SUFFIXES[Math.floor(Math.random() * SUFFIXES.length)];
@@ -79,8 +96,13 @@ export class ItemGenerator {
       });
     }
 
-    const rarityMult = 1 + RARITIES.indexOf(rarity) * 0.35;
+    const rarityMult = 1 + RARITIES.indexOf(rarity) * 0.45;
     const dps = Math.floor((8 + level * 3) * rarityMult * (0.9 + Math.random() * 0.2));
+    const enchantmentCount = Math.max(0, RARITIES.indexOf(rarity) - 1);
+    const enchantments = shuffle(ENCHANTMENTS).slice(0, enchantmentCount);
+    const specialEffect = rarity === 'legendary' || rarity === 'mythical'
+      ? LEGENDARY_POWERS[Math.floor(Math.random() * LEGENDARY_POWERS.length)]
+      : undefined;
 
     return {
       id: `item_${++itemCounter}_${Date.now()}`,
@@ -94,10 +116,10 @@ export class ItemGenerator {
       setId: rarity === 'legendary' && Math.random() < 0.3
         ? SET_ITEMS[Math.floor(Math.random() * SET_ITEMS.length)]
         : undefined,
-      legendaryPower:
-        rarity === 'legendary' || rarity === 'mythic' || rarity === 'ancient' || rarity === 'divine'
-          ? LEGENDARY_POWERS[Math.floor(Math.random() * LEGENDARY_POWERS.length)]
-          : undefined,
+      legendaryPower: specialEffect,
+      enchantments,
+      upgradeLevel: 0,
+      specialEffect,
       dps,
       sellValue: Math.floor(dps * 2.5 * rarityMult),
     };
@@ -116,7 +138,7 @@ export class ItemGenerator {
 
   static generateAccessory(level: number, forceRarity?: Rarity): ItemInstance {
     const item = this.generate(level, forceRarity);
-    const accNames = ['Ring', 'Amulet', 'Charm', 'Talisman'];
+    const accNames = ['Ring', 'Amulet', 'Relic', 'Artifact', 'Pet Sigil', 'Charm', 'Talisman'];
     item.type = 'accessory';
     item.baseName = accNames[Math.floor(Math.random() * accNames.length)];
     item.name = `${PREFIXES[Math.floor(Math.random() * PREFIXES.length)]} ${item.baseName}`;
@@ -150,8 +172,8 @@ export class ItemGenerator {
     for (let i = 0; i < count; i++) {
       const roll = Math.random();
       if (roll < 0.12) {
-        const boost = roll < 0.02 ? 'divine' : roll < 0.05 ? 'mythic' : 'legendary';
-        const gen = Math.random() < 0.5 ? this.generate(level, boost as Rarity) : this.generateArmor(level, boost as Rarity);
+        const boost = roll < 0.035 ? 'mythical' : 'legendary';
+        const gen = Math.random() < 0.5 ? this.generate(level, boost) : this.generateArmor(level, boost);
         items.push(gen);
       } else if (roll < 0.22) {
         items.push(this.generateArmor(level));
@@ -165,4 +187,13 @@ export class ItemGenerator {
     }
     return items;
   }
+}
+
+function shuffle<T>(input: T[]): T[] {
+  const out = [...input];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }

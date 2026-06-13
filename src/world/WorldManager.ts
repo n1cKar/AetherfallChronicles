@@ -14,14 +14,14 @@ import { createWorldProp } from '../render/WorldProps';
 
 const NPC_DIALOGUE_ELERA = [
   'The rift tears wider each night. Clear the woods and recover our supplies.',
-  'When you are ready, seek Emberroot Cave to the northeast — that is where the void festers.',
+  'When you are ready, seek Mossvault Dungeon to the northeast. That is where the first void scar festers.',
 ];
 const NPC_DIALOGUE_THERON = [
   'Fresh stock from the caravan — well, what survived. I buy herbs, fish, and ore.',
   'Press C to craft goods, then sell extras to me with E.',
 ];
 const NPC_DIALOGUE_GARRICK = [
-  'My forge is cold until we get ore. Smelt ingots at the camp workbench — key C.',
+  'My forge is cold until we get ore. Smelt ingots at the camp workbench with C.',
 ];
 const NPC_DIALOGUE_LINA = [
   'Cast your line at the blue ponds east of camp. Night fishing is slower but rarer catches glow.',
@@ -38,15 +38,18 @@ const NPC_DIALOGUE_SELA = [
 ];
 
 export interface MapPOI {
-  type: 'enemy' | 'chest' | 'npc' | 'shrine' | 'cave' | 'mountain' | 'ruin' | 'quest' | 'player' | 'fish' | 'gather' | 'wildlife';
+  type: 'enemy' | 'chest' | 'npc' | 'shrine' | 'cave' | 'mountain' | 'boulder_cluster' | 'ruin' | 'quest' | 'player' | 'fish' | 'gather' | 'wildlife' | 'dungeon' | 'trap' | 'puzzle' | 'boss';
   x: number;
   z: number;
   meta?: string;
 }
 
 export interface MinimapSnapshot {
+  centerX: number;
+  centerZ: number;
   playerX: number;
   playerZ: number;
+  questMarker: { x: number; z: number } | null;
   pois: MapPOI[];
   biomeTiles: { x: number; z: number; color: string }[];
 }
@@ -101,6 +104,20 @@ export class WorldManager {
     if (this.starterBuilt) return;
     this.starterBuilt = true;
     const h = (x: number, z: number) => this.getHeightAt(x, z);
+    const placeProp = (
+      type: Parameters<typeof createWorldProp>[0],
+      x: number,
+      z: number,
+      rotation = 0,
+      scale = 1,
+    ) => {
+      const prop = createWorldProp(type);
+      prop.group.position.set(x, h(x, z), z);
+      prop.group.rotation.y = rotation;
+      prop.group.scale.setScalar(scale);
+      this.scene.add(prop.group);
+      return prop.group;
+    };
 
     const campfire = createWorldProp('campfire');
     campfire.group.position.set(wx + 6, h(wx + 6, wz + 4), wz + 4);
@@ -117,6 +134,30 @@ export class WorldManager {
       tree.group.position.set(wx + Math.cos(angle) * 10, h(wx + Math.cos(angle) * 10, wz + Math.sin(angle) * 10), wz + Math.sin(angle) * 10);
       this.scene.add(tree.group);
     }
+
+    for (let i = 0; i < 9; i++) {
+      const x = wx - 8 + i * 3.2;
+      placeProp('fence', x, wz + 13 + Math.sin(i) * 0.8, i % 2 ? 0.18 : -0.08, 0.85);
+    }
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      placeProp('torch', wx + Math.cos(a) * 15, wz + Math.sin(a) * 12, a, 1.1);
+    }
+    for (const [x, z, rot] of [
+      [wx + 15, wz + 1, 0.3],
+      [wx + 16, wz + 3, -0.15],
+      [wx + 4, wz + 9, 1.1],
+      [wx - 4, wz + 6, -0.4],
+      [wx + 12, wz - 7, 0.8],
+    ] as const) {
+      placeProp(Math.random() > 0.5 ? 'crate' : 'barrel', x, z, rot, 0.9);
+    }
+    placeProp('wagon', wx - 3, wz - 8, -0.65, 1);
+    placeProp('well', wx - 10, wz + 4, 0, 0.85);
+    placeProp('banner', wx + 2, wz + 12, 0.3, 1.1);
+    placeProp('banner', wx + 10, wz + 12, -0.25, 1.1);
+    placeProp('aether_statue', wx - 2, wz + 2, 0.8, 0.75);
+    placeProp('bridge', wx + 20, wz - 2, 0.35, 0.9);
 
     this.interactables.spawnNpc(wx + 6, wz + 5, h(wx + 6, wz + 5), 'Captain Elara', NPC_DIALOGUE_ELERA);
     this.interactables.spawnNpc(wx + 14, wz + 6, h(wx + 14, wz + 6), 'Merchant Theron', NPC_DIALOGUE_THERON);
@@ -140,7 +181,7 @@ export class WorldManager {
     cave.position.set(caveX, h(caveX, caveZ), caveZ);
     cave.rotation.y = -0.6;
     this.scene.add(cave);
-    this.landmarkPOIs.push({ type: 'cave', x: caveX, z: caveZ, meta: 'Emberroot Cave' });
+    this.landmarkPOIs.push({ type: 'cave', x: caveX, z: caveZ, meta: 'Mossvault Cave' });
 
     const mountain = createMountainPeak(1.1);
     const mtX = wx - 32;
@@ -203,30 +244,34 @@ export class WorldManager {
     enemies: MapPOI[],
     extra: MapPOI[] = [],
   ): MinimapSnapshot {
-    return this.buildMapSnapshot(px, pz, 56, 8, questMarker, [...enemies, ...extra]);
+    return this.buildMapSnapshot(px, pz, px, pz, 56, 8, questMarker, [...enemies, ...extra]);
   }
 
   getWorldMapSnapshot(
     centerX: number,
     centerZ: number,
+    playerX: number,
+    playerZ: number,
     range: number,
     step: number,
     questMarker: { x: number; z: number } | null,
     enemies: MapPOI[],
     extra: MapPOI[] = [],
   ): MinimapSnapshot {
-    return this.buildMapSnapshot(centerX, centerZ, range, step, questMarker, [...enemies, ...extra]);
+    return this.buildMapSnapshot(centerX, centerZ, playerX, playerZ, range, step, questMarker, [...enemies, ...extra]);
   }
 
   private buildMapSnapshot(
     centerX: number,
     centerZ: number,
+    playerX: number,
+    playerZ: number,
     range: number,
     step: number,
     questMarker: { x: number; z: number } | null,
     enemies: MapPOI[],
   ): MinimapSnapshot {
-    const pois: MapPOI[] = [...enemies];
+    const pois: MapPOI[] = [{ type: 'player', x: playerX, z: playerZ, meta: 'You' }, ...enemies];
     for (const c of this.interactables.chests) {
       pois.push({ type: 'chest', x: c.position.x, z: c.position.z, meta: c.opened ? 'open' : 'closed' });
     }
@@ -255,7 +300,7 @@ export class WorldManager {
       }
     }
 
-    return { playerX: centerX, playerZ: centerZ, pois, biomeTiles };
+    return { centerX, centerZ, playerX, playerZ, questMarker, pois, biomeTiles };
   }
 
   getCollidersNear(px: number, pz: number, radius: number): THREE.Box3[] {

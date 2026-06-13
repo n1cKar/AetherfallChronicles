@@ -34,10 +34,10 @@ export class PostProcessing {
         tDiffuse: { value: this.renderTarget.texture },
         resolution: { value: new THREE.Vector2(w, h) },
         bloomStrength: { value: 0.45 },
-        vignette: { value: 0.2 },
+        vignette: { value: 0.03 },
         time: { value: 0 },
         fogColor: { value: new THREE.Color(0x1a2035) },
-        fogStrength: { value: 0.08 },
+        fogStrength: { value: 0.035 },
         gradeTint: { value: new THREE.Vector3(1, 1, 1) },
         gradeSat: { value: 1.0 },
       },
@@ -86,7 +86,7 @@ export class PostProcessing {
 
           vec2 vigUv = uv * 2.0 - 1.0;
           float vig = 1.0 - dot(vigUv, vigUv) * vignette;
-          col.rgb *= vig;
+          col.rgb *= max(vig, 0.94);
 
           col.rgb = col.rgb / (col.rgb + vec3(1.0));
           col.rgb = pow(col.rgb, vec3(0.92));
@@ -94,8 +94,9 @@ export class PostProcessing {
           float gray = dot(col.rgb, vec3(0.299, 0.587, 0.114));
           col.rgb = mix(vec3(gray), col.rgb, gradeSat);
           col.rgb *= gradeTint;
+          col.rgb = max(col.rgb * 1.72 + vec3(0.16), vec3(0.14));
           col.rgb = mix(col.rgb, fogColor, fogStrength * (1.0 - vig));
-          col.rgb += filmGrain(uv, time) * 0.025;
+          col.rgb += filmGrain(uv, time) * 0.012;
 
           gl_FragColor = col;
         }
@@ -119,7 +120,7 @@ export class PostProcessing {
   applySettings(settings: GameSettings, scale = 1): void {
     const mat = this.quad.material as THREE.ShaderMaterial;
     mat.uniforms.bloomStrength.value = settings.bloom ? 0.38 : 0.06;
-    mat.uniforms.vignette.value = settings.graphicsQuality === 'ultra' ? 0.28 : 0.22;
+    mat.uniforms.vignette.value = settings.graphicsQuality === 'ultra' ? 0.04 : 0.03;
     this.enabled = settings.graphicsQuality !== 'low' && settings.bloom;
     this.renderScale = scale;
   }
@@ -151,13 +152,13 @@ export class PostProcessing {
     const mat = this.quad.material as THREE.ShaderMaterial;
     const c = new THREE.Color(groundColor);
     mat.uniforms.gradeTint.value.set(
-      0.85 + c.r * 0.3,
-      0.85 + c.g * 0.3,
-      0.85 + c.b * 0.35,
+      1.0 + c.r * 0.22,
+      1.0 + c.g * 0.22,
+      1.0 + c.b * 0.25,
     );
     const f = new THREE.Color(fogColor);
-    const sat = 0.92 + (f.r + f.g + f.b) / 3 * 0.12;
-    mat.uniforms.gradeSat.value = Math.min(1.15, sat);
+    const sat = 1.02 + (f.r + f.g + f.b) / 3 * 0.1;
+    mat.uniforms.gradeSat.value = Math.min(1.18, sat);
   }
 
   dispose(): void {

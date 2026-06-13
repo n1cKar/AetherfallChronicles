@@ -51,6 +51,12 @@ const PROP_TABLE: { type: PropType; weight: number; biome?: BiomeId[] }[] = [
   { type: 'temple_pillar', weight: 4, biome: ['magical', 'mountain', 'hell'] },
   { type: 'well', weight: 3, biome: ['forest', 'desert'] },
   { type: 'wagon', weight: 3 },
+  { type: 'castle_wall', weight: 8, biome: ['mountain', 'desert', 'corrupted'] },
+  { type: 'rune_gate', weight: 6, biome: ['magical', 'corrupted', 'mountain'] },
+  { type: 'lava_vent', weight: 10, biome: ['volcanic', 'hell'] },
+  { type: 'ice_spire', weight: 10, biome: ['frozen'] },
+  { type: 'aether_statue', weight: 5, biome: ['magical', 'desert', 'mountain'] },
+  { type: 'spike_trap', weight: 5, biome: ['hell', 'corrupted', 'desert'] },
 ];
 
 export class ChunkGenerator {
@@ -183,7 +189,8 @@ export class ChunkGenerator {
       group.add(cluster);
     }
 
-    const propCount = Math.min(this.perf.maxPropsPerChunk, 8 + Math.floor(rng() * this.perf.maxPropsPerChunk));
+    const propBudget = Math.min(22, Math.max(this.perf.maxPropsPerChunk + 5, Math.floor(this.perf.maxPropsPerChunk * 1.5)));
+    const propCount = Math.min(propBudget, 10 + Math.floor(rng() * propBudget));
     for (let p = 0; p < propCount; p++) {
       const propType = this.pickProp(rng, centerBiome);
       const lx = rng() * CHUNK_SIZE;
@@ -200,6 +207,29 @@ export class ChunkGenerator {
         box.translate(new THREE.Vector3(wx, h, wz));
         colliders.push(box);
       }
+    }
+
+    const detailCount = Math.min(10, 4 + Math.floor(rng() * (this.perf.maxPropsPerChunk * 0.6 + 4)));
+    for (let d = 0; d < detailCount; d++) {
+      const lx = rng() * CHUNK_SIZE;
+      const lz = rng() * CHUNK_SIZE;
+      const wx = originX + lx;
+      const wz = originZ + lz;
+      const detailType: PropType = centerBiome === 'frozen'
+        ? 'ice_spire'
+        : centerBiome === 'volcanic' || centerBiome === 'hell'
+          ? 'lava_vent'
+          : centerBiome === 'swamp' || centerBiome === 'magical'
+            ? 'mushroom'
+            : centerBiome === 'corrupted'
+              ? 'bones'
+              : 'bush';
+      const detail = createWorldProp(detailType, biomeDef.groundAccent).group;
+      detail.position.set(lx, this.getHeightAt(wx, wz), lz);
+      detail.rotation.y = rng() * Math.PI * 2;
+      const s = 0.65 + rng() * 0.45;
+      detail.scale.setScalar(s);
+      group.add(detail);
     }
 
     if (rng() < 0.12) {
@@ -258,6 +288,26 @@ export class ChunkGenerator {
       const crystal = createLowPolyCrystal();
       crystal.position.set(lx, this.getHeightAt(originX + lx, originZ + lz), lz);
       group.add(crystal);
+    }
+
+    if ((centerBiome === 'volcanic' || centerBiome === 'hell') && rng() < 0.45) {
+      for (let i = 0; i < 3; i++) {
+        const lx = rng() * CHUNK_SIZE;
+        const lz = rng() * CHUNK_SIZE;
+        const vent = createWorldProp('lava_vent').group;
+        vent.position.set(lx, this.getHeightAt(originX + lx, originZ + lz), lz);
+        group.add(vent);
+      }
+    }
+
+    if (centerBiome === 'frozen' && rng() < 0.5) {
+      for (let i = 0; i < 4; i++) {
+        const lx = rng() * CHUNK_SIZE;
+        const lz = rng() * CHUNK_SIZE;
+        const ice = createWorldProp('ice_spire').group;
+        ice.position.set(lx, this.getHeightAt(originX + lx, originZ + lz), lz);
+        group.add(ice);
+      }
     }
 
     if (rng() < 0.07) {

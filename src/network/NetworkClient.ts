@@ -3,6 +3,7 @@
  * Developed by n1ckar
  */
 
+import { SESSION_SERVER_KEY } from '../config/constants';
 import { EventBus } from '../utils/EventBus';
 
 export interface NetworkPlayerState {
@@ -224,7 +225,7 @@ export const network = new NetworkClient();
 
 /** Default WebSocket URL for local / LAN hosting */
 export function getDefaultServerUrl(): string {
-  const stored = sessionStorage.getItem('aetherfall_server');
+  const stored = sessionStorage.getItem(SESSION_SERVER_KEY) ?? sessionStorage.getItem('aetherfall_server');
   if (stored) return stored;
   const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

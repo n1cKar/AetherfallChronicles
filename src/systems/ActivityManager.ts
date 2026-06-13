@@ -37,9 +37,51 @@ export interface SpireState {
   center: THREE.Vector3;
 }
 
+export interface RiftObelisk {
+  id: string;
+  mesh: THREE.Group;
+  position: THREE.Vector3;
+  cooldown: number;
+}
+
+export interface RiftTrialState {
+  active: boolean;
+  tier: number;
+  timer: number;
+  enemiesToSpawn: number;
+  center: THREE.Vector3;
+}
+
+interface VectorSave {
+  x: number;
+  y: number;
+  z: number;
+}
+
+interface TimedActivitySave {
+  active: boolean;
+  step: number;
+  timer: number;
+  enemiesToSpawn: number;
+  center: VectorSave;
+}
+
+export interface ActivitySave {
+  mineNodes: { id: string; depth: number; depleted: boolean; respawn: number }[];
+  digSpots: { id: string; dug: boolean }[];
+  riftObelisks: { id: string; cooldown: number }[];
+  arena: TimedActivitySave;
+  spire: TimedActivitySave;
+  rift: TimedActivitySave;
+  shrineBlessed: boolean;
+  miningProgress: number;
+  miningNodeId: string | null;
+}
+
 export class ActivityManager {
   mineNodes: MineNode[] = [];
   digSpots: DigSpot[] = [];
+  riftObelisks: RiftObelisk[] = [];
   arena: ArenaState = {
     active: false,
     wave: 0,
@@ -50,6 +92,13 @@ export class ActivityManager {
   spire: SpireState = {
     active: false,
     floor: 0,
+    timer: 0,
+    enemiesToSpawn: 0,
+    center: new THREE.Vector3(),
+  };
+  rift: RiftTrialState = {
+    active: false,
+    tier: 0,
     timer: 0,
     enemiesToSpawn: 0,
     center: new THREE.Vector3(),
@@ -65,10 +114,110 @@ export class ActivityManager {
     this.spawnArena(wx + 22, wz - 18, getHeight);
     this.spawnMineNode(wx + 30, wz + 12, getHeight, 'deep');
     this.spawnMineNode(wx - 18, wz + 20, getHeight, 'surface');
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2 + 0.5;
-      this.spawnDigSpot(wx + Math.cos(a) * 22, wz + Math.sin(a) * 22, getHeight);
+    this.spawnMineNode(wx + 48, wz - 6, getHeight, 'deep');
+    this.spawnMineNode(wx - 42, wz - 18, getHeight, 'surface');
+    this.spawnMineNode(wx + 8, wz + 38, getHeight, 'surface');
+    this.spawnRiftObelisk(wx + 34, wz - 34, getHeight);
+    this.spawnRiftObelisk(wx - 38, wz + 34, getHeight);
+    this.spawnRiftObelisk(wx + 56, wz + 26, getHeight);
+    this.spawnRiftObelisk(wx - 58, wz - 36, getHeight);
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + 0.5;
+      const dist = 20 + (i % 4) * 8;
+      this.spawnDigSpot(wx + Math.cos(a) * dist, wz + Math.sin(a) * dist, getHeight);
     }
+  }
+
+  loadFromSave(data?: ActivitySave): void {
+    if (!data) return;
+
+    const savedMines = new Map(data.mineNodes?.map((m) => [m.id, m]) ?? []);
+    for (const node of this.mineNodes) {
+      const saved = savedMines.get(node.id);
+      if (!saved) continue;
+      node.depth = Math.max(1, saved.depth ?? node.depth);
+      node.depleted = Boolean(saved.depleted);
+      node.respawn = Math.max(0, saved.respawn ?? 0);
+      node.mesh.visible = !node.depleted;
+    }
+
+    const savedDigSpots = new Map(data.digSpots?.map((d) => [d.id, d]) ?? []);
+    for (const spot of this.digSpots) {
+      const saved = savedDigSpots.get(spot.id);
+      if (!saved) continue;
+      spot.dug = Boolean(saved.dug);
+      spot.mesh.visible = !spot.dug;
+    }
+
+    const savedRifts = new Map(data.riftObelisks?.map((r) => [r.id, r]) ?? []);
+    for (const obelisk of this.riftObelisks) {
+      const saved = savedRifts.get(obelisk.id);
+      if (!saved) continue;
+      obelisk.cooldown = Math.max(0, saved.cooldown ?? 0);
+    }
+
+    this.restoreTimedActivity(this.arena, data.arena, 'wave');
+    this.restoreTimedActivity(this.spire, data.spire, 'floor');
+    this.restoreTimedActivity(this.rift, data.rift, 'tier');
+    this.shrineBlessed = Boolean(data.shrineBlessed);
+    this.miningProgress = data.miningProgress ?? 0;
+    this.miningNodeId = data.miningNodeId ?? null;
+  }
+
+  toSave(): ActivitySave {
+    return {
+      mineNodes: this.mineNodes.map((m) => ({
+        id: m.id,
+        depth: m.depth,
+        depleted: m.depleted,
+        respawn: m.respawn,
+      })),
+      digSpots: this.digSpots.map((d) => ({
+        id: d.id,
+        dug: d.dug,
+      })),
+      riftObelisks: this.riftObelisks.map((r) => ({
+        id: r.id,
+        cooldown: r.cooldown,
+      })),
+      arena: this.saveTimedActivity(this.arena, this.arena.wave),
+      spire: this.saveTimedActivity(this.spire, this.spire.floor),
+      rift: this.saveTimedActivity(this.rift, this.rift.tier),
+      shrineBlessed: this.shrineBlessed,
+      miningProgress: this.miningProgress,
+      miningNodeId: this.miningNodeId,
+    };
+  }
+
+  spawnRiftObelisk(x: number, z: number, getHeight: (x: number, z: number) => number): void {
+    const y = getHeight(x, z);
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.2, 1.4, 0.45, 7),
+      createStylizedMaterial(0x3e4054),
+    );
+    base.position.y = 0.22;
+    g.add(base);
+    const obelisk = new THREE.Mesh(
+      new THREE.BoxGeometry(0.7, 2.8, 0.7),
+      createStylizedMaterial(0x5960a8, { emissive: 0x333dff, emissiveIntensity: 0.35 }),
+    );
+    obelisk.position.y = 1.65;
+    obelisk.rotation.y = Math.PI / 4;
+    g.add(obelisk);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(1.25, 0.05, 6, 24),
+      createStylizedMaterial(0x88ccff, { emissive: 0x4488ff, emissiveIntensity: 0.8 }),
+    );
+    ring.position.y = 2.35;
+    ring.rotation.x = Math.PI / 2;
+    g.add(ring);
+    const light = new THREE.PointLight(0x6688ff, 1.15, 12);
+    light.position.y = 2.3;
+    g.add(light);
+    g.position.set(x, y, z);
+    this.scene.add(g);
+    this.riftObelisks.push({ id: `rift_${x}_${z}`, mesh: g, position: new THREE.Vector3(x, y, z), cooldown: 0 });
   }
 
   spawnSpire(x: number, z: number, getHeight: (x: number, z: number) => number): void {
@@ -179,17 +328,29 @@ export class ActivityManager {
       }
       m.mesh.rotation.y += dt * 0.3;
     }
+    for (const r of this.riftObelisks) {
+      if (r.cooldown > 0) r.cooldown -= dt;
+      r.mesh.rotation.y += dt * 0.25;
+      const ring = r.mesh.children[2] as THREE.Mesh | undefined;
+      if (ring) ring.rotation.z += dt * 1.4;
+    }
 
     const mine = this.getNearestMine(px, pz);
     const dig = this.getNearestDig(px, pz);
+    const rift = this.getNearestRift(px, pz);
     const inArena = distance2D(px, pz, this.arena.center.x, this.arena.center.z) < 6;
     const inSpire = distance2D(px, pz, this.spire.center.x, this.spire.center.z) < 5;
 
-    if (inSpire && !this.spire.active && !this.arena.active && playerLevel >= 15) {
+    if (rift && !this.rift.active && !this.arena.active && !this.spire.active) {
+      hint = rift.cooldown > 0
+        ? `Rift stabilizing - ${Math.ceil(rift.cooldown)}s`
+        : 'Press F to open an Aether Rift Trial';
+      if (useAction && rift.cooldown <= 0) this.startRift(rift, playerLevel);
+    } else if (inSpire && !this.spire.active && !this.arena.active && playerLevel >= 15) {
       hint = 'Press F to ascend the Aether Spire';
       if (useAction) this.startSpire();
     } else if (inSpire && playerLevel < 15) {
-      hint = 'Aether Spire — reach level 15 to enter';
+      hint = 'Aether Spire - reach level 15 to enter';
     } else if (inArena && !this.arena.active) {
       hint = 'Press F to enter Void Arena';
       if (useAction) {
@@ -249,7 +410,25 @@ export class ActivityManager {
           this.bus.emit('spire_complete', this.spire.floor);
         }
       }
-      hint = `Aether Spire — Floor ${this.spire.floor}`;
+      hint = `Aether Spire - Floor ${this.spire.floor}`;
+    }
+
+    if (this.rift.active) {
+      this.rift.timer -= dt;
+      if (this.rift.timer <= 0 && this.rift.enemiesToSpawn <= 0) {
+        this.rift.tier++;
+        if (this.rift.tier > 3) {
+          this.rift.active = false;
+          this.bus.emit('rift_complete', this.rift.tier);
+          const obelisk = this.riftObelisks.find((r) => r.position.distanceTo(this.rift.center) < 1);
+          if (obelisk) obelisk.cooldown = 90;
+        } else {
+          this.rift.enemiesToSpawn = 2 + this.rift.tier * 2;
+          this.rift.timer = 34;
+          this.bus.emit('rift_tier', this.rift.tier);
+        }
+      }
+      hint = `Aether Rift Trial - Tier ${this.rift.tier}`;
     }
 
     return { hint, miningPct, inArena, inSpire };
@@ -291,9 +470,23 @@ export class ActivityManager {
     this.bus.emit('spire_floor', 1);
   }
 
+  startRift(obelisk: RiftObelisk, playerLevel: number): void {
+    this.rift.active = true;
+    this.rift.tier = Math.max(1, Math.floor(playerLevel / 6));
+    this.rift.timer = 30;
+    this.rift.enemiesToSpawn = 4;
+    this.rift.center.copy(obelisk.position);
+    this.bus.emit('rift_start', this.rift.tier);
+  }
+
   onSpireKill(): void {
     if (!this.spire.active) return;
     this.spire.enemiesToSpawn = Math.max(0, this.spire.enemiesToSpawn - 1);
+  }
+
+  onRiftKill(): void {
+    if (!this.rift.active) return;
+    this.rift.enemiesToSpawn = Math.max(0, this.rift.enemiesToSpawn - 1);
   }
 
   blessShrine(): void {
@@ -325,11 +518,24 @@ export class ActivityManager {
     return best;
   }
 
+  getNearestRift(px: number, pz: number, max = 4.5): RiftObelisk | null {
+    let best: RiftObelisk | null = null;
+    let bestD = max * max;
+    for (const r of this.riftObelisks) {
+      const dist = distance2D(r.position.x, r.position.z, px, pz);
+      if (dist < bestD) { bestD = dist; best = r; }
+    }
+    return best;
+  }
+
   getMapPOIs(): MapPOI[] {
     const pois: MapPOI[] = [
       { type: 'mountain', x: this.spire.center.x, z: this.spire.center.z, meta: 'Aether Spire' },
       { type: 'ruin', x: this.arena.center.x, z: this.arena.center.z, meta: 'Void Arena' },
     ];
+    for (const r of this.riftObelisks) {
+      pois.push({ type: 'puzzle', x: r.position.x, z: r.position.z, meta: r.cooldown > 0 ? 'Rift Cooldown' : 'Aether Rift Trial' });
+    }
     for (const m of this.mineNodes) {
       if (!m.depleted) pois.push({ type: 'gather', x: m.position.x, z: m.position.z, meta: 'mine' });
     }
@@ -342,7 +548,37 @@ export class ActivityManager {
   dispose(): void {
     for (const m of this.mineNodes) this.scene.remove(m.mesh);
     for (const d of this.digSpots) this.scene.remove(d.mesh);
+    for (const r of this.riftObelisks) this.scene.remove(r.mesh);
     this.mineNodes = [];
     this.digSpots = [];
+    this.riftObelisks = [];
+  }
+
+  private saveTimedActivity(
+    state: ArenaState | SpireState | RiftTrialState,
+    step: number,
+  ): TimedActivitySave {
+    return {
+      active: state.active,
+      step,
+      timer: state.timer,
+      enemiesToSpawn: state.enemiesToSpawn,
+      center: { x: state.center.x, y: state.center.y, z: state.center.z },
+    };
+  }
+
+  private restoreTimedActivity(
+    state: ArenaState | SpireState | RiftTrialState,
+    data: TimedActivitySave | undefined,
+    stepKey: 'wave' | 'floor' | 'tier',
+  ): void {
+    if (!data) return;
+    state.active = Boolean(data.active);
+    state.timer = Math.max(0, data.timer ?? 0);
+    state.enemiesToSpawn = Math.max(0, data.enemiesToSpawn ?? 0);
+    if (data.center) state.center.set(data.center.x, data.center.y, data.center.z);
+    if (stepKey === 'wave') (state as ArenaState).wave = Math.max(0, data.step ?? 0);
+    else if (stepKey === 'floor') (state as SpireState).floor = Math.max(0, data.step ?? 0);
+    else (state as RiftTrialState).tier = Math.max(0, data.step ?? 0);
   }
 }

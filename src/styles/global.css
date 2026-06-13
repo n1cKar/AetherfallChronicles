@@ -11,13 +11,10 @@
   --text: #e8e4dc;
   --text-dim: #9a958a;
   --rarity-common: #b8b4a8;
-  --rarity-magic: #4a9eff;
-  --rarity-rare: #ffd700;
+  --rarity-rare: #4a9eff;
   --rarity-epic: #a855f7;
   --rarity-legendary: #ff8c00;
-  --rarity-mythic: #ff3366;
-  --rarity-ancient: #00e5cc;
-  --rarity-divine: #fff5a0;
+  --rarity-mythical: #ff3366;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

@@ -9,6 +9,7 @@ export interface UpgradeSave {
   perks: string[];
   lifeMastery: Record<string, number>;
   arenaBestWave: number;
+  buffs?: ActiveBuff[];
 }
 
 export interface PerkDef {
@@ -60,6 +61,7 @@ export class UpgradeSystem {
     this.perks = new Set(data.perks ?? []);
     this.lifeMastery = { ...this.lifeMastery, ...data.lifeMastery };
     this.arenaBestWave = data.arenaBestWave ?? 0;
+    this.buffs = (data.buffs ?? []).filter((b) => b.remaining > 0);
   }
 
   toSave(): UpgradeSave {
@@ -67,6 +69,7 @@ export class UpgradeSystem {
       perks: [...this.perks],
       lifeMastery: { ...this.lifeMastery },
       arenaBestWave: this.arenaBestWave,
+      buffs: this.buffs.filter((b) => b.remaining > 0).map((b) => ({ ...b })),
     };
   }
 

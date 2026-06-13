@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aetherfall Chronicles logo">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="48" x2="0" y2="464" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff0a8"/>
+      <stop offset="0.42" stop-color="#f0c96e"/>
+      <stop offset="1" stop-color="#a8762f"/>
+    </linearGradient>
+    <linearGradient id="ember" x1="124" y1="374" x2="388" y2="374" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c45c3a"/>
+      <stop offset="1" stop-color="#ffd36b"/>
+    </linearGradient>
+    <linearGradient id="aether" x1="256" y1="124" x2="256" y2="394" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d9ffff"/>
+      <stop offset="0.46" stop-color="#5ff4e7"/>
+      <stop offset="1" stop-color="#2492d4"/>
+    </linearGradient>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <g filter="url(#softGlow)">
+    <path fill="rgba(212,168,75,0.18)" d="M256 42 372 104v114c0 95-50 166-116 217-66-51-116-122-116-217V104L256 42Z"/>
+    <path fill="none" stroke="url(#gold)" stroke-width="15" stroke-linejoin="round" d="M256 51 361 108v105c0 86-44 151-105 198-61-47-105-112-105-198V108L256 51Z"/>
+
+    <path fill="url(#aether)" d="M256 119 298 232l-42 74-42-74 42-113Z"/>
+    <path fill="#eaffff" opacity="0.7" d="M256 119v187l-24-75 24-112Z"/>
+    <path fill="#2474b8" opacity="0.45" d="M256 119v187l24-75-24-112Z"/>
+
+    <path fill="url(#gold)" d="M132 374h54l70-218 70 218h54L287 118h-62L132 374Zm90-46 34-105 34 105h-68Z"/>
+    <path fill="#0b1018" opacity="0.72" d="M244 329h24l-12-42-12 42Z"/>
+    <path fill="url(#ember)" d="M124 393h264l-28 42H152l-28-42Z"/>
+
+    <path fill="#f0c96e" opacity="0.7" d="M109 161h34v34h-34zM369 161h34v34h-34zM97 300h24v24H97zM391 300h24v24h-24z"/>
+    <path fill="#5ff4e7" opacity="0.8" d="M230 424h52l-26 32-26-32Z"/>
+  </g>
+</svg>

@@ -16,7 +16,13 @@ export type PropType =
   | 'mushroom'
   | 'bones'
   | 'banner'
-  | 'wagon';
+  | 'wagon'
+  | 'castle_wall'
+  | 'rune_gate'
+  | 'lava_vent'
+  | 'ice_spire'
+  | 'aether_statue'
+  | 'spike_trap';
 
 export interface PropCollider {
   box: THREE.Box3;
@@ -40,6 +46,12 @@ export function createWorldProp(type: PropType, biomeAccent?: number): { group: 
     case 'bones': return { group: createBones() };
     case 'banner': return { group: createBanner(biomeAccent ?? 0xd4a84b) };
     case 'wagon': return createWagon();
+    case 'castle_wall': return createCastleWall();
+    case 'rune_gate': return createRuneGate(biomeAccent ?? 0x88ccff);
+    case 'lava_vent': return { group: createLavaVent() };
+    case 'ice_spire': return { group: createIceSpire() };
+    case 'aether_statue': return createAetherStatue();
+    case 'spike_trap': return { group: createSpikeTrap() };
     default: return { group: createBush() };
   }
 }
@@ -305,4 +317,127 @@ function createWagon(): { group: THREE.Group; collider: PropCollider } {
       solid: true,
     },
   };
+}
+
+function createCastleWall(): { group: THREE.Group; collider: PropCollider } {
+  const g = new THREE.Group();
+  const stone = createStylizedMaterial(0x5d6068, { roughness: 0.92 });
+  for (let i = 0; i < 5; i++) {
+    const block = new THREE.Mesh(new THREE.BoxGeometry(1, 1.2 + (i % 2) * 0.25, 0.8), stone);
+    block.position.set((i - 2) * 0.95, block.geometry.parameters.height / 2, 0);
+    block.castShadow = true;
+    block.receiveShadow = true;
+    g.add(block);
+  }
+  for (let i = 0; i < 4; i++) {
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.35, 0.9), stone);
+    cap.position.set((i - 1.5) * 1.2, 1.55, 0);
+    g.add(cap);
+  }
+  return {
+    group: g,
+    collider: {
+      box: new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(0, 0.8, 0), new THREE.Vector3(5.2, 1.8, 1)),
+      solid: true,
+    },
+  };
+}
+
+function createRuneGate(color: number): { group: THREE.Group; collider: PropCollider } {
+  const g = new THREE.Group();
+  const stone = createStylizedMaterial(0x4e5260);
+  const rune = createStylizedMaterial(color, { emissive: color, emissiveIntensity: 0.6 });
+  const left = new THREE.Mesh(new THREE.BoxGeometry(0.7, 3.2, 0.7), stone);
+  const right = left.clone();
+  left.position.set(-1.25, 1.6, 0);
+  right.position.set(1.25, 1.6, 0);
+  g.add(left, right);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.55, 0.75), stone);
+  top.position.y = 3.15;
+  g.add(top);
+  const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.28, 0), rune);
+  gem.position.y = 2.45;
+  g.add(gem);
+  return {
+    group: g,
+    collider: {
+      box: new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(0, 1.6, 0), new THREE.Vector3(3.5, 3.4, 1)),
+      solid: true,
+    },
+  };
+}
+
+function createLavaVent(): THREE.Group {
+  const g = new THREE.Group();
+  const rock = createStylizedMaterial(0x34201a);
+  const lava = createStylizedMaterial(0xff4a18, { emissive: 0xff2700, emissiveIntensity: 1 });
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.05, 0.35, 7), rock);
+  base.position.y = 0.18;
+  g.add(base);
+  const glow = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.65, 0.08, 7), lava);
+  glow.position.y = 0.4;
+  g.add(glow);
+  const plume = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.7, 6), lava);
+  plume.position.y = 0.82;
+  g.add(plume);
+  const light = new THREE.PointLight(0xff5522, 0.8, 7);
+  light.position.y = 1.2;
+  g.add(light);
+  return g;
+}
+
+function createIceSpire(): THREE.Group {
+  const g = new THREE.Group();
+  const ice = createStylizedMaterial(0x9fdcff, { emissive: 0x5aaee0, emissiveIntensity: 0.2, metalness: 0.1 });
+  for (let i = 0; i < 4; i++) {
+    const shard = new THREE.Mesh(new THREE.ConeGeometry(0.22 + i * 0.06, 1.2 + i * 0.35, 5), ice);
+    shard.position.set((i - 1.5) * 0.35, (1.2 + i * 0.35) / 2, (i % 2 - 0.5) * 0.35);
+    shard.rotation.z = (i - 1.5) * 0.12;
+    g.add(shard);
+  }
+  return g;
+}
+
+function createAetherStatue(): { group: THREE.Group; collider: PropCollider } {
+  const g = new THREE.Group();
+  const stone = createStylizedMaterial(0x77747c);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.9, 0.45, 6), stone);
+  base.position.y = 0.22;
+  g.add(base);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.65, 1.5, 0.45), stone);
+  body.position.y = 1.15;
+  g.add(body);
+  const head = new THREE.Mesh(new THREE.DodecahedronGeometry(0.35, 0), stone);
+  head.position.y = 2.15;
+  g.add(head);
+  const halo = new THREE.Mesh(
+    new THREE.TorusGeometry(0.55, 0.04, 6, 16),
+    createStylizedMaterial(0xd4a84b, { emissive: 0xd4a84b, emissiveIntensity: 0.35 }),
+  );
+  halo.position.y = 2.45;
+  halo.rotation.x = Math.PI / 2;
+  g.add(halo);
+  return {
+    group: g,
+    collider: {
+      box: new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(0, 1.2, 0), new THREE.Vector3(1.4, 2.6, 1.2)),
+      solid: true,
+    },
+  };
+}
+
+function createSpikeTrap(): THREE.Group {
+  const g = new THREE.Group();
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 1.6), createStylizedMaterial(0x3a3330));
+  plate.position.y = 0.06;
+  g.add(plate);
+  const metal = createStylizedMaterial(0xa8a8a8, { metalness: 0.3 });
+  for (let x = -1; x <= 1; x++) {
+    for (let z = -1; z <= 1; z++) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.55, 4), metal);
+      spike.position.set(x * 0.45, 0.38, z * 0.45);
+      g.add(spike);
+    }
+  }
+  return g;
 }

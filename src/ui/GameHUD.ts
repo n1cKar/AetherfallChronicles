@@ -1,6 +1,6 @@
 import { CLASS_DEFINITIONS } from '../character/ClassDefinitions';
 import type { Player, EquipSlot } from '../character/Player';
-import { RARITY_COLORS } from '../config/constants';
+import { getRarityColor, normalizeRarity } from '../config/constants';
 import type { ItemInstance } from '../loot/ItemGenerator';
 import type { BiomeDefinition } from '../world/BiomeConfig';
 import type { MinimapSnapshot } from '../world/WorldManager';
@@ -11,6 +11,13 @@ import type { ChatMessage } from '../network/NetworkClient';
 import { ATTRIBUTE_UPGRADES, PERK_TREE, type UpgradeSystem } from '../systems/UpgradeSystem';
 import { ObjectiveCompass } from './ObjectiveCompass';
 import { isMobileDevice } from '../utils/device';
+import {
+  CONTROL_BINDING_DEFS,
+  formatKeyCode,
+  normalizeKeyBindings,
+  type ControlAction,
+  type KeyBindings,
+} from '../core/KeyBindings';
 
 const POI_COLORS: Record<string, string> = {
   player: '#f0c96e',
@@ -25,7 +32,19 @@ const POI_COLORS: Record<string, string> = {
   fish: '#4a9acc',
   gather: '#5aba6a',
   wildlife: '#c49a6a',
+  dungeon: '#d4a84b',
+  trap: '#ff6644',
+  puzzle: '#88ccff',
+  boss: '#ff3366',
 };
+
+export interface ObjectiveGuide {
+  direction: string;
+  distance: string;
+  action: string;
+  autoStart: string;
+  nearbyActivity: string;
+}
 
 export class GameHUD {
   private healthBar: HTMLElement;
@@ -65,6 +84,8 @@ export class GameHUD {
   private onUnequip?: (slot: EquipSlot) => void;
   private onSell?: (itemId: string) => void;
   private onUseItem?: (itemId: string) => void;
+  private onRebindControl?: (action: ControlAction, code: string) => void;
+  private onResetControls?: () => void;
   private onChatSend?: (message: string) => void;
   private chatOpen = false;
   private chatLog: HTMLElement;
@@ -73,6 +94,11 @@ export class GameHUD {
   private onlineStatus: HTMLElement;
   private heroName: HTMLElement;
   private playerListUl: HTMLElement;
+  private controlsPanel: HTMLElement;
+  private controlsList: HTMLElement;
+  private controlsCapture: HTMLElement;
+  private controlBindings: KeyBindings = normalizeKeyBindings();
+  private capturingControl: ControlAction | null = null;
   private compass: ObjectiveCompass;
   private minimapSize = 168;
   private worldMapCenter: { x: number; z: number } | null = null;
@@ -113,6 +139,9 @@ export class GameHUD {
     this.onlineStatus = document.getElementById('online-status')!;
     this.heroName = document.getElementById('hero-name')!;
     this.playerListUl = document.getElementById('player-list-ul')!;
+    this.controlsPanel = document.getElementById('controls-panel')!;
+    this.controlsList = document.getElementById('controls-list')!;
+    this.controlsCapture = document.getElementById('controls-capture')!;
     this.compass = new ObjectiveCompass();
 
     const dpr = window.devicePixelRatio || 1;
@@ -136,14 +165,17 @@ export class GameHUD {
     document.getElementById('life-close')?.addEventListener('click', () => this.toggleLifePanel(false));
     document.getElementById('btn-upgrades')?.addEventListener('click', () => this.toggleUpgradePanel());
     document.getElementById('upgrade-close')?.addEventListener('click', () => this.toggleUpgradePanel(false));
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyQ') this.toggleJournal();
-      if (e.code === 'KeyM') this.toggleWorldMap();
-      if (e.code === 'KeyC') this.toggleLifePanel();
-      if (e.code === 'KeyU') this.toggleUpgradePanel();
+    document.getElementById('btn-controls-menu')?.addEventListener('click', () => this.toggleControlsPanel(true));
+    document.getElementById('controls-close')?.addEventListener('click', () => this.toggleControlsPanel(false));
+    document.getElementById('controls-reset')?.addEventListener('click', () => {
+      this.capturingControl = null;
+      this.controlsCapture.textContent = 'Controls reset to defaults.';
+      this.onResetControls?.();
     });
+    window.addEventListener('keydown', (e) => this.captureControlKey(e), true);
     this.setupWorldMapMouse();
     this.setupChat();
+    this.renderControlsPanel();
   }
 
   private setupChat(): void {
@@ -174,6 +206,84 @@ export class GameHUD {
 
   setChatHandler(handler: (message: string) => void): void {
     this.onChatSend = handler;
+  }
+
+  setControlsHandlers(handlers: {
+    rebind: (action: ControlAction, code: string) => void;
+    reset: () => void;
+  }): void {
+    this.onRebindControl = handlers.rebind;
+    this.onResetControls = handlers.reset;
+  }
+
+  setControlBindings(bindings: KeyBindings): void {
+    this.controlBindings = normalizeKeyBindings(bindings);
+    this.renderControlsPanel();
+  }
+
+  toggleControlsPanel(force?: boolean): void {
+    const open = force ?? !this.controlsPanel.classList.contains('open');
+    this.controlsPanel.classList.toggle('open', open);
+    if (!open) {
+      this.capturingControl = null;
+      this.controlsCapture.textContent = 'Select a control to rebind.';
+      this.renderControlsPanel();
+    }
+  }
+
+  private renderControlsPanel(): void {
+    if (!this.controlsList) return;
+    const groups = ['Movement', 'Combat', 'Actions', 'Menus'] as const;
+    this.controlsList.innerHTML = groups.map((group) => {
+      const rows = CONTROL_BINDING_DEFS
+        .filter((def) => def.group === group)
+        .map((def) => {
+          const keys = this.controlBindings[def.id].map(formatKeyCode).join(' / ');
+          const listening = this.capturingControl === def.id ? ' listening' : '';
+          return `
+            <div class="control-row">
+              <span class="control-label">${escapeHtml(def.label)}</span>
+              <span class="control-keys">${escapeHtml(keys)}</span>
+              <button class="control-rebind${listening}" type="button" data-action="${def.id}">Rebind</button>
+            </div>
+          `;
+        }).join('');
+      return `
+        <section class="controls-group">
+          <h3>${group}</h3>
+          ${rows}
+        </section>
+      `;
+    }).join('');
+
+    this.controlsList.querySelectorAll<HTMLButtonElement>('.control-rebind').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.action as ControlAction | undefined;
+        if (!action) return;
+        this.capturingControl = action;
+        const label = CONTROL_BINDING_DEFS.find((def) => def.id === action)?.label ?? action;
+        this.controlsCapture.textContent = `Press a new key for ${label}. Esc cancels.`;
+        this.renderControlsPanel();
+      });
+    });
+  }
+
+  private captureControlKey(e: KeyboardEvent): void {
+    if (!this.capturingControl) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (e.code === 'Escape') {
+      this.capturingControl = null;
+      this.controlsCapture.textContent = 'Rebind cancelled.';
+      this.renderControlsPanel();
+      return;
+    }
+
+    const action = this.capturingControl;
+    this.capturingControl = null;
+    this.controlsCapture.textContent = `${formatKeyCode(e.code)} assigned.`;
+    this.onRebindControl?.(action, e.code);
   }
 
   setHeroName(name: string, online: boolean): void {
@@ -280,12 +390,24 @@ export class GameHUD {
     return { centerX: this.worldMapCenter.x, centerZ: this.worldMapCenter.z, range, step };
   }
 
-  setStoryTracker(summary: { chapter: string; quest: string; objective: string; progress: string }): void {
+  setStoryTracker(
+    summary: { chapter: string; quest: string; objective: string; progress: string },
+    guide?: ObjectiveGuide,
+  ): void {
+    const guideHtml = guide ? `
+      <div class="quest-guide">
+        <div><span>Route</span><strong>${escapeHtml(guide.direction)} ${escapeHtml(guide.distance)}</strong></div>
+        <div><span>Do</span><strong>${escapeHtml(guide.action)}</strong></div>
+        <div><span>Start</span><strong>${escapeHtml(guide.autoStart)}</strong></div>
+        <div><span>Nearby</span><strong>${escapeHtml(guide.nearbyActivity)}</strong></div>
+      </div>
+    ` : '';
     this.questTracker.innerHTML = `
-      <h4 class="quest-chapter">${summary.chapter}</h4>
-      <p class="quest-title">${summary.quest}</p>
-      <p class="quest-objective">${summary.objective}</p>
-      <p class="quest-progress">${summary.progress}</p>
+      <h4 class="quest-chapter">${escapeHtml(summary.chapter)}</h4>
+      <p class="quest-title">${escapeHtml(summary.quest)}</p>
+      <p class="quest-objective">${escapeHtml(summary.objective)}</p>
+      <p class="quest-progress">${escapeHtml(summary.progress)}</p>
+      ${guideHtml}
     `;
   }
 
@@ -298,20 +420,41 @@ export class GameHUD {
     const ctx = this.minimapCtx;
     const w = this.minimapSize;
     const h = this.minimapSize;
-    const scale = 1.15;
-    const px = map.playerX;
-    const pz = map.playerZ;
+    const scale = this.minimapSize <= 110 ? 1 : 1.15;
+    const cx = map.centerX;
+    const cz = map.centerZ;
+    const project = (x: number, z: number) => ({
+      x: w / 2 + (x - cx) * scale,
+      y: h / 2 + (z - cz) * scale,
+    });
 
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#0c0e18';
+    const bg = ctx.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#121827');
+    bg.addColorStop(1, '#070a11');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
 
-    for (const tile of map.biomeTiles) {
-      const tx = w / 2 + (tile.x - px) * scale;
-      const tz = h / 2 + (tile.z - pz) * scale;
-      ctx.fillStyle = tile.color;
-      ctx.fillRect(tx - 3, tz - 3, 6, 6);
+    ctx.strokeStyle = 'rgba(255,255,255,0.045)';
+    ctx.lineWidth = 1;
+    for (let g = 14; g < w; g += 21) {
+      ctx.beginPath();
+      ctx.moveTo(g, 0);
+      ctx.lineTo(g, h);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, g);
+      ctx.lineTo(w, g);
+      ctx.stroke();
     }
+
+    for (const tile of map.biomeTiles) {
+      const { x: tx, y: tz } = project(tile.x, tile.z);
+      ctx.fillStyle = tile.color;
+      ctx.globalAlpha = 0.72;
+      ctx.fillRect(tx - 4, tz - 4, 8, 8);
+    }
+    ctx.globalAlpha = 1;
 
     ctx.strokeStyle = 'rgba(212,168,75,0.25)';
     ctx.lineWidth = 1;
@@ -322,91 +465,212 @@ export class GameHUD {
     ctx.arc(w / 2, h / 2, 52 * scale, 0, Math.PI * 2);
     ctx.stroke();
 
-    const drawOrder = ['ruin', 'mountain', 'cave', 'shrine', 'fish', 'gather', 'wildlife', 'chest', 'npc', 'enemy', 'quest', 'player'];
+    if (map.questMarker) {
+      const player = project(map.playerX, map.playerZ);
+      const goal = project(map.questMarker.x, map.questMarker.z);
+      const goalVisible = goal.x > -12 && goal.x < w + 12 && goal.y > -12 && goal.y < h + 12;
+      if (goalVisible) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(0,255,204,0.45)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(player.x, player.y);
+        ctx.lineTo(goal.x, goal.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    const drawOrder = ['ruin', 'mountain', 'cave', 'dungeon', 'boss', 'trap', 'puzzle', 'shrine', 'fish', 'gather', 'wildlife', 'chest', 'npc', 'enemy', 'quest', 'player'];
     for (const type of drawOrder) {
       for (const poi of map.pois) {
         if (poi.type !== type) continue;
-        const ex = w / 2 + (poi.x - px) * scale;
-        const ez = h / 2 + (poi.z - pz) * scale;
+        const { x: ex, y: ez } = project(poi.x, poi.z);
         if (ex < -8 || ex > w + 8 || ez < -8 || ez > h + 8) continue;
-
-        ctx.fillStyle = POI_COLORS[type] ?? '#fff';
-        if (type === 'player') {
-          ctx.beginPath();
-          ctx.arc(ex, ez, 5, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.strokeStyle = '#fff';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-        } else if (type === 'quest') {
-          ctx.beginPath();
-          ctx.moveTo(ex, ez - 6);
-          ctx.lineTo(ex + 5, ez);
-          ctx.lineTo(ex, ez + 6);
-          ctx.lineTo(ex - 5, ez);
-          ctx.closePath();
-          ctx.fill();
-        } else if (type === 'mountain') {
-          ctx.beginPath();
-          ctx.moveTo(ex, ez - 5);
-          ctx.lineTo(ex + 4, ez + 4);
-          ctx.lineTo(ex - 4, ez + 4);
-          ctx.closePath();
-          ctx.fill();
-        } else if (type === 'cave') {
-          ctx.fillRect(ex - 3, ez - 3, 6, 6);
-        } else {
-          const r = type === 'enemy' ? 3 : 4;
-          ctx.beginPath();
-          ctx.arc(ex, ez, r, 0, Math.PI * 2);
-          ctx.fill();
-          if (type === 'chest' && poi.meta === 'open') {
-            ctx.strokeStyle = POI_COLORS.chest;
-            ctx.stroke();
-          }
+        this.drawMapPoi(ctx, type, ex, ez, type === 'player' ? 6 : type === 'quest' ? 6 : 4);
+        if (type === 'chest' && poi.meta === 'open') {
+          ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(ex - 4, ez - 4, 8, 8);
         }
       }
+    }
+
+    if (map.questMarker) {
+      const dist = Math.hypot(map.questMarker.x - map.playerX, map.questMarker.z - map.playerZ);
+      ctx.fillStyle = 'rgba(8,10,16,0.78)';
+      ctx.fillRect(6, h - 23, Math.min(96, w - 12), 17);
+      ctx.fillStyle = '#00ffcc';
+      ctx.font = '10px Inter,sans-serif';
+      ctx.fillText(`Goal ${Math.round(dist)}m`, 10, h - 11);
     }
 
     ctx.fillStyle = 'rgba(255,255,255,0.7)';
     ctx.font = '9px Inter,sans-serif';
     ctx.fillText('N', w / 2 - 3, 10);
+    ctx.fillText(`X ${Math.round(map.playerX)} Z ${Math.round(map.playerZ)}`, 8, 12);
   }
 
   private drawWorldMap(map: MinimapSnapshot): void {
     const ctx = this.worldMapCtx;
-    const w = this.worldMapCanvas.clientWidth;
-    const h = this.worldMapCanvas.clientHeight;
-    const px = map.playerX;
-    const pz = map.playerZ;
+    const w = this.worldMapCanvas.width;
+    const h = this.worldMapCanvas.height;
+    const cx = map.centerX;
+    const cz = map.centerZ;
     const scale = 0.35 * this.worldMapZoom;
+    const project = (x: number, z: number) => ({
+      x: w / 2 + (x - cx) * scale,
+      y: h / 2 + (z - cz) * scale,
+    });
 
-    ctx.clearRect(0, 0, this.worldMapCanvas.width, this.worldMapCanvas.height);
-    ctx.fillStyle = '#0b0e16';
-    ctx.fillRect(0, 0, this.worldMapCanvas.width, this.worldMapCanvas.height);
+    ctx.clearRect(0, 0, w, h);
+    const bg = ctx.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#121827');
+    bg.addColorStop(0.55, '#0b101b');
+    bg.addColorStop(1, '#070a11');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    const worldGrid = 50;
+    const minX = cx - w / (2 * scale);
+    const maxX = cx + w / (2 * scale);
+    const minZ = cz - h / (2 * scale);
+    const maxZ = cz + h / (2 * scale);
+    ctx.strokeStyle = 'rgba(255,255,255,0.055)';
+    ctx.lineWidth = 1;
+    for (let gx = Math.floor(minX / worldGrid) * worldGrid; gx <= maxX; gx += worldGrid) {
+      const p = project(gx, cz);
+      ctx.beginPath();
+      ctx.moveTo(p.x, 0);
+      ctx.lineTo(p.x, h);
+      ctx.stroke();
+    }
+    for (let gz = Math.floor(minZ / worldGrid) * worldGrid; gz <= maxZ; gz += worldGrid) {
+      const p = project(cx, gz);
+      ctx.beginPath();
+      ctx.moveTo(0, p.y);
+      ctx.lineTo(w, p.y);
+      ctx.stroke();
+    }
 
     for (const tile of map.biomeTiles) {
-      const tx = w / 2 + (tile.x - px) * scale;
-      const tz = h / 2 + (tile.z - pz) * scale;
+      const { x: tx, y: tz } = project(tile.x, tile.z);
       ctx.fillStyle = tile.color;
-      ctx.fillRect(tx - 4, tz - 4, 8, 8);
+      ctx.globalAlpha = 0.82;
+      ctx.fillRect(tx - 5, tz - 5, 10, 10);
+    }
+    ctx.globalAlpha = 1;
+
+    if (map.questMarker) {
+      const player = project(map.playerX, map.playerZ);
+      const goal = project(map.questMarker.x, map.questMarker.z);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,255,204,0.38)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([9, 6]);
+      ctx.beginPath();
+      ctx.moveTo(player.x, player.y);
+      ctx.lineTo(goal.x, goal.y);
+      ctx.stroke();
+      ctx.restore();
     }
 
     for (const poi of map.pois) {
-      const ex = w / 2 + (poi.x - px) * scale;
-      const ez = h / 2 + (poi.z - pz) * scale;
+      const { x: ex, y: ez } = project(poi.x, poi.z);
       if (ex < -10 || ex > w + 10 || ez < -10 || ez > h + 10) continue;
-      ctx.fillStyle = POI_COLORS[poi.type] ?? '#ffffff';
-      const r = poi.type === 'player' ? 5 : poi.type === 'enemy' ? 3 : 4;
-      ctx.beginPath();
-      ctx.arc(ex, ez, r, 0, Math.PI * 2);
-      ctx.fill();
-      if (poi.type === 'quest') {
-        ctx.strokeStyle = '#00ffcc';
-        ctx.lineWidth = 2;
-        ctx.stroke();
+      const size = poi.type === 'player' ? 8 : poi.type === 'quest' || poi.type === 'boss' ? 7 : poi.type === 'enemy' ? 4 : 5;
+      this.drawMapPoi(ctx, poi.type, ex, ez, size);
+      const label = this.getWorldMapPoiLabel(poi);
+      if (label) {
+        ctx.fillStyle = poi.type === 'quest' ? '#00ffcc' : poi.type === 'player' ? '#fff4c2' : 'rgba(255,255,255,0.78)';
+        ctx.font = '11px Inter,sans-serif';
+        ctx.fillText(label, ex + 9, ez - 8);
       }
     }
+
+    const dist = map.questMarker ? Math.hypot(map.questMarker.x - map.playerX, map.questMarker.z - map.playerZ) : null;
+    ctx.fillStyle = 'rgba(8,10,16,0.82)';
+    ctx.fillRect(12, 12, Math.min(390, w - 24), 36);
+    ctx.fillStyle = '#fff4c2';
+    ctx.font = '12px Inter,sans-serif';
+    ctx.fillText(`You: X ${Math.round(map.playerX)} / Z ${Math.round(map.playerZ)}`, 24, 34);
+    if (dist != null) {
+      ctx.fillStyle = '#00ffcc';
+      ctx.fillText(`Objective: ${Math.round(dist)}m away`, 188, 34);
+    }
+  }
+
+  private getWorldMapPoiLabel(poi: MinimapSnapshot['pois'][number]): string | null {
+    if (poi.type === 'player') return 'You';
+    if (poi.type === 'quest') return 'Objective';
+    if (poi.type === 'boss') return poi.meta ?? 'Boss';
+    if (this.worldMapZoom >= 1.15 && poi.type === 'puzzle') return poi.meta ?? 'Event';
+    if (this.worldMapZoom >= 1.35 && (poi.type === 'dungeon' || poi.type === 'cave')) return poi.meta ?? poi.type;
+    if (this.worldMapZoom >= 1.5 && (poi.type === 'mountain' || poi.type === 'ruin' || poi.type === 'shrine')) {
+      return poi.meta ?? poi.type;
+    }
+    return null;
+  }
+
+  private drawMapPoi(ctx: CanvasRenderingContext2D, type: string, x: number, y: number, size: number): void {
+    const color = POI_COLORS[type] ?? '#ffffff';
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = type === 'player' ? '#ffffff' : color;
+    ctx.lineWidth = type === 'player' || type === 'quest' ? 2 : 1;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = type === 'player' || type === 'quest' || type === 'boss' ? 10 : 3;
+
+    if (type === 'player') {
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(x, y - size - 6);
+      ctx.lineTo(x + 4, y - size + 2);
+      ctx.lineTo(x - 4, y - size + 2);
+      ctx.closePath();
+      ctx.fill();
+    } else if (type === 'quest') {
+      ctx.beginPath();
+      ctx.moveTo(x, y - size);
+      ctx.lineTo(x + size, y);
+      ctx.lineTo(x, y + size);
+      ctx.lineTo(x - size, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#eaffff';
+      ctx.stroke();
+    } else if (type === 'mountain' || type === 'boss') {
+      ctx.beginPath();
+      ctx.moveTo(x, y - size);
+      ctx.lineTo(x + size * 0.85, y + size);
+      ctx.lineTo(x - size * 0.85, y + size);
+      ctx.closePath();
+      ctx.fill();
+      if (type === 'boss') {
+        ctx.strokeStyle = '#ffd6e4';
+        ctx.stroke();
+      }
+    } else if (type === 'cave' || type === 'dungeon' || type === 'chest') {
+      ctx.fillRect(x - size * 0.75, y - size * 0.75, size * 1.5, size * 1.5);
+    } else if (type === 'trap') {
+      ctx.beginPath();
+      ctx.moveTo(x - size, y - size);
+      ctx.lineTo(x + size, y + size);
+      ctx.moveTo(x + size, y - size);
+      ctx.lineTo(x - size, y + size);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   private setupWorldMapMouse(): void {
@@ -450,9 +714,11 @@ export class GameHUD {
   addLootNotification(item: ItemInstance): void {
     const el = document.createElement('div');
     el.className = 'loot-notification';
-    el.style.borderColor = RARITY_COLORS[item.rarity];
-    el.style.color = RARITY_COLORS[item.rarity];
-    el.innerHTML = `<span class="loot-rarity">${item.rarity.toUpperCase()}</span> ${item.name}`;
+    const rarity = normalizeRarity(item.rarity);
+    const color = getRarityColor(item.rarity);
+    el.style.borderColor = color;
+    el.style.color = color;
+    el.innerHTML = `<span class="loot-rarity">${rarity.toUpperCase()}</span> ${item.name}`;
     this.lootFeed.prepend(el);
     setTimeout(() => el.classList.add('fade-out'), 3500);
     setTimeout(() => el.remove(), 4000);
@@ -492,7 +758,7 @@ export class GameHUD {
       const item = player.equipped[slot];
       if (!el) continue;
       if (item) {
-        el.innerHTML = `<span class="eq-rarity" style="color:${RARITY_COLORS[item.rarity]}">${item.name}</span>
+        el.innerHTML = `<span class="eq-rarity" style="color:${getRarityColor(item.rarity)}">${item.name}</span>
           <button class="eq-unequip" data-slot="${slot}">Unequip</button>`;
         el.classList.add('filled');
       } else {
@@ -512,6 +778,8 @@ export class GameHUD {
       const aff = item.affixes.slice(0, 2).map((a) => a.name).join(' ');
       const stat = item.type === 'weapon' ? `${item.dps} DPS` : item.type === 'consumable' ? 'Use' : aff || item.type;
       const leg = item.legendaryPower ? `<span class="inv-leg">${item.legendaryPower}</span>` : '';
+      const color = getRarityColor(item.rarity);
+      const rarity = normalizeRarity(item.rarity);
       const equipBtn = item.type !== 'consumable'
         ? '<button type="button" class="inv-equip-btn">Equip</button>' : '';
       const useBtn = item.type === 'consumable'
@@ -519,8 +787,8 @@ export class GameHUD {
       const mobileActions = mobile
         ? `<div class="inv-mobile-actions">${equipBtn}${useBtn}<button type="button" class="inv-sell-btn">Sell</button></div>`
         : '';
-      return `<div class="inv-item" data-id="${item.id}" style="border-color: ${RARITY_COLORS[item.rarity]}" title="${item.name}\n${item.affixes.map((a) => `${a.name} +${a.value}`).join(', ')}">
-        <span class="inv-rarity">${item.rarity.slice(0, 3).toUpperCase()}</span>
+      return `<div class="inv-item" data-id="${item.id}" style="border-color: ${color}" title="${item.name}\n${item.affixes.map((a) => `${a.name} +${a.value}`).join(', ')}">
+        <span class="inv-rarity">${rarity.slice(0, 3).toUpperCase()}</span>
         <span class="inv-name">${item.name}</span>
         <span class="inv-dps">${stat}</span>${leg}${mobileActions}
       </div>`;

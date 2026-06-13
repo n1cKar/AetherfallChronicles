@@ -5,8 +5,8 @@ import { createStylizedMaterial } from './shaders/StylizedMaterial';
 export class GrassField {
   private mesh: THREE.InstancedMesh | null = null;
   private dummy = new THREE.Object3D();
-  private offsets: Float32Array;
-  private scales: Float32Array;
+  private offsets = new Float32Array(0);
+  private scales = new Float32Array(0);
   private lastX = NaN;
   private lastZ = NaN;
   private updateTimer = 0;

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aetherfall Chronicles favicon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#101821"/>
+      <stop offset="0.55" stop-color="#11131f"/>
+      <stop offset="1" stop-color="#211224"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="48" x2="0" y2="464" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff0a8"/>
+      <stop offset="0.45" stop-color="#f0c96e"/>
+      <stop offset="1" stop-color="#a8762f"/>
+    </linearGradient>
+    <linearGradient id="aether" x1="256" y1="120" x2="256" y2="386" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d9ffff"/>
+      <stop offset="0.5" stop-color="#5ff4e7"/>
+      <stop offset="1" stop-color="#2492d4"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="205" fill="none" stroke="#d4a84b" stroke-width="18"/>
+  <circle cx="256" cy="256" r="178" fill="#0b1018" opacity="0.7"/>
+  <path fill="url(#aether)" d="M256 114 303 237l-47 81-47-81 47-123Z"/>
+  <path fill="url(#gold)" d="M116 390h62l78-246 78 246h62L290 96h-68L116 390Zm103-52 37-116 37 116h-74Z"/>
+  <path fill="#0b1018" opacity="0.74" d="M242 339h28l-14-49-14 49Z"/>
+  <path fill="#c45c3a" d="M137 411h238l-32 46H169l-32-46Z"/>
+</svg>

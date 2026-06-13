@@ -224,7 +224,7 @@ function createWeaponMesh(type: WeaponType, accent: number): THREE.Group {
       const blade = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 0.75), metal);
       blade.position.z = -0.45;
       g.add(blade);
-      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.04, 0.08), accent);
+      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.04, 0.08), metal);
       guard.name = 'guard';
       g.add(guard);
       const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.22, 6), createStylizedMaterial(0x3a2a18));

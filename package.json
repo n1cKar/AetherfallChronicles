@@ -1,7 +1,7 @@
 {
   "name": "aetherfall-chronicles",
   "version": "1.0.0",
-  "description": "Aetherfall Chronicles — stylized isometric low-poly fantasy ARPG. Developed by n1ckar",
+  "description": "Aetherfall Chronicles - voxel-inspired browser dungeon-crawling action RPG. Developed by n1ckar",
   "type": "module",
   "scripts": {
     "dev": "concurrently -n web,server -c cyan,magenta \"vite\" \"node server/gameServer.mjs\"",
@@ -12,6 +12,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "three": "^0.172.0",
     "ws": "^8.21.0"
   },

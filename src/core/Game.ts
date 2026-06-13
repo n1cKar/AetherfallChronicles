@@ -7,20 +7,21 @@ import { CombatSystem } from '../combat/CombatSystem';
 import { EnemyManager } from '../combat/EnemyManager';
 import { IsometricCamera } from './IsometricCamera';
 import { InputManager } from './InputManager';
-import { WorldManager } from '../world/WorldManager';
+import { WorldManager, type MapPOI } from '../world/WorldManager';
 import { DayNightCycle } from '../world/DayNightCycle';
 import { WeatherSystem } from '../world/WeatherSystem';
 import { PostProcessing } from '../render/PostProcessing';
 import { ParticleSystem } from '../effects/ParticleSystem';
 import { DamageNumberSystem } from '../ui/DamageNumbers';
-import { GameHUD } from '../ui/GameHUD';
+import { GameHUD, type ObjectiveGuide } from '../ui/GameHUD';
 import { AudioManager, type MusicContext } from '../audio/AudioManager';
 import { SaveManager, type PlayerSaveData } from '../save/SaveManager';
 import { EventBus } from '../utils/EventBus';
 import type { ItemInstance } from '../loot/ItemGenerator';
-import { RARITY_COLORS } from '../config/constants';
+import { ItemGenerator } from '../loot/ItemGenerator';
+import { getRarityColor, normalizeRarity } from '../config/constants';
 import { StoryCampaign, STORY_CHAPTERS } from '../game/StoryCampaign';
-import type { CampaignQuest } from '../game/StoryCampaign';
+import type { CampaignObjective, CampaignQuest } from '../game/StoryCampaign';
 import { GrassField } from '../render/GrassField';
 import { buildPerformanceProfile, type PerformanceProfile } from './PerformanceProfile';
 import { LifeSkillsManager } from '../life/LifeSkillsManager';
@@ -37,6 +38,26 @@ import { AchievementSystem } from '../systems/AchievementSystem';
 import { addMaterial } from '../life/Materials';
 import type { EquipSlot } from '../character/Player';
 import { applyMobileDocumentClass } from '../utils/device';
+import { DungeonSystem } from '../dungeon/DungeonSystem';
+import {
+  DEFAULT_KEY_BINDINGS,
+  normalizeKeyBindings,
+  type ControlAction,
+  type KeyBindings,
+} from './KeyBindings';
+
+interface RoamingWorldEvent {
+  id: string;
+  title: string;
+  state: 'available' | 'active' | 'cooldown';
+  center: THREE.Vector3;
+  targetKills: number;
+  kills: number;
+  spawned: number;
+  spawnCooldown: number;
+  timer: number;
+  rewardGiven: boolean;
+}
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -61,6 +82,7 @@ export class Game {
   private life!: LifeSkillsManager;
   private upgrades!: UpgradeSystem;
   private activities!: ActivityManager;
+  private dungeons!: DungeonSystem;
   private displayName = 'Adventurer';
   private onlineMode = false;
   private remotes: RemotePlayerManager | null = null;
@@ -84,11 +106,20 @@ export class Game {
   private lootDrops: { item: ItemInstance; mesh: THREE.Mesh; life: number }[] = [];
   private paused = false;
   private interactCooldown = 0;
+  private objectiveArrivalCooldown = 0;
+  private autoObjectiveActionTimer = 0;
+  private lastPassiveObjectiveKey = '';
+  private bossObjectiveSpawned = false;
+  private roamingEvent: RoamingWorldEvent | null = null;
+  private roamingEventTimer = 24;
   private saveTimer = 0;
   private physicsColliders: THREE.Box3[] = [];
   private fogColor = new THREE.Color();
   private sceneFog = new THREE.FogExp2(0x4a6a78, 0.012);
   private skyColor = new THREE.Color(0x1a2840);
+  private objectiveOrigin = { x: 0, z: 0 };
+  private visibilityFill: THREE.HemisphereLight;
+  private playerLantern: THREE.PointLight;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.worldSeed = this.getSeed();
@@ -102,15 +133,20 @@ export class Game {
     this.renderer.shadowMap.enabled = this.perf.shadowsEnabled;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.55;
+    this.renderer.toneMappingExposure = 2.35;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x1a2840);
     this.scene.fog = this.sceneFog;
+    this.visibilityFill = new THREE.HemisphereLight(0xcfe6ff, 0x5f4a35, 0.95);
+    this.scene.add(this.visibilityFill);
+    this.playerLantern = new THREE.PointLight(0xffe0b0, 1.9, 42, 1.05);
+    this.playerLantern.castShadow = false;
+    this.scene.add(this.playerLantern);
 
     this.camera = new IsometricCamera(window.innerWidth / window.innerHeight);
-    this.input = new InputManager(canvas);
+    this.input = new InputManager(canvas, this.settings.keyBindings);
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -123,21 +159,25 @@ export class Game {
     this.displayName = displayName;
     this.onlineMode = opts?.online ?? false;
     const save = SaveManager.loadPlayer();
+    const activeSave = save && save.classId === classId ? save : null;
     this.player = new Player(classId);
-    if (save && save.classId === classId) {
-      this.player.level = save.level;
-      this.player.xp = save.xp;
-      this.player.xpToNext = save.xpToNext;
-      this.player.gold = save.gold;
-      this.player.inventory = save.inventory ?? [];
-      this.player.loadEquipped(save.equipped ?? {});
-      this.player.attributes = save.attributes;
-      this.player.skillPoints = save.skillPoints ?? 0;
-      this.player.health = this.player.maxHealth;
-      if (!this.onlineMode) this.worldSeed = save.worldSeed ?? this.worldSeed;
+    if (activeSave) {
+      this.player.level = activeSave.level;
+      this.player.xp = activeSave.xp;
+      this.player.xpToNext = activeSave.xpToNext;
+      this.player.gold = activeSave.gold;
+      this.player.inventory = activeSave.inventory ?? [];
+      this.player.loadEquipped(activeSave.equipped ?? {});
+      this.player.attributes = activeSave.attributes;
+      this.player.skillPoints = activeSave.skillPoints ?? 0;
+      this.player.deaths = activeSave.deaths ?? this.player.deaths;
+      this.player.rotation = activeSave.rotation ?? this.player.rotation;
+      this.restorePlayerVitals(activeSave);
+      if (!this.onlineMode) this.worldSeed = activeSave.worldSeed ?? this.worldSeed;
+      this.playTime = activeSave.playTimeSeconds ?? 0;
     }
 
-    if (!this.onlineMode && !save?.worldSeed) {
+    if (!this.onlineMode && !activeSave?.worldSeed) {
       this.worldSeed = this.getSeed();
     }
 
@@ -186,7 +226,7 @@ export class Game {
       this.refreshJournal();
       this.updateAchievementBadge();
     });
-    if (save?.achievements) this.achievements.load(save.achievements);
+    this.achievements.loadState(activeSave?.achievementState ?? activeSave?.achievements);
 
     if (this.onlineMode) {
       this.remotes = new RemotePlayerManager(this.scene);
@@ -196,12 +236,14 @@ export class Game {
     }
 
     this.story = new StoryCampaign(this.bus);
+    this.story.load(activeSave?.story);
     this.upgrades = new UpgradeSystem();
-    this.upgrades.load(save?.upgrades);
+    this.upgrades.load(activeSave?.upgrades);
     this.life = new LifeSkillsManager(this.scene, this.bus);
-    this.life.loadFromSave(save?.lifeSkills);
+    this.life.loadFromSave(activeSave?.lifeSkills);
     this.activities = new ActivityManager(this.scene, this.bus);
-    if (save?.dayTime != null) this.dayNight.time = save.dayTime;
+    this.dungeons = new DungeonSystem(this.scene, this.world.interactables, this.bus, this.worldSeed);
+    if (activeSave?.dayTime != null) this.dayNight.time = activeSave.dayTime;
     this.hud.initSkills(classId);
     this.hud.setCraftHandler((id) => this.tryCraft(id));
     this.hud.setInventoryHandlers({
@@ -209,24 +251,37 @@ export class Game {
         if (this.player.equipItem(id)) {
           this.audio.playLoot();
           this.hud.showInteractMessage('Item equipped!');
+          this.saveTimer = 8;
         }
       },
       unequip: (slot: EquipSlot) => {
-        if (this.player.unequipSlot(slot)) this.hud.showInteractMessage('Item unequipped.');
+        if (this.player.unequipSlot(slot)) {
+          this.hud.showInteractMessage('Item unequipped.');
+          this.saveTimer = 8;
+        }
       },
       sell: (id) => {
         const v = this.player.sellItem(id);
-        if (v > 0) this.hud.showInteractMessage(`Sold for ${v} gold.`);
+        if (v > 0) {
+          this.hud.showInteractMessage(`Sold for ${v} gold.`);
+          this.saveTimer = 8;
+        }
       },
       use: (id) => {
         const r = this.player.useConsumable(id);
         if (r.ok) {
           this.screenFx.flashHeal();
           this.hud.showInteractMessage(r.message);
+          this.saveTimer = 8;
         }
       },
     });
     this.hud.setUpgradeHandler((type, id) => this.tryUpgrade(type, id));
+    this.hud.setControlsHandlers({
+      rebind: (action, code) => this.rebindControl(action, code),
+      reset: () => this.resetControls(),
+    });
+    this.hud.setControlBindings(this.settings.keyBindings);
     this.hud.setChatHandler((msg) => {
       this.bus.emit('player_chat');
       if (this.onlineMode) network.sendChat(msg);
@@ -243,11 +298,16 @@ export class Game {
     this.hud.showTutorial();
     if (!this.nameplates) this.nameplates = new NameplateSystem();
 
-    const startX = save?.position?.x ?? 0;
-    const startZ = save?.position?.z ?? 0;
+    const startX = activeSave?.position?.x ?? 0;
+    const startZ = activeSave?.position?.z ?? 0;
+    this.objectiveOrigin = { x: startX, z: startZ };
     const h = (x: number, z: number) => this.world.getHeightAt(x, z);
     this.player.position.set(startX, h(startX, startZ), startZ);
     this.player.body.position.copy(this.player.position);
+    if (activeSave?.velocity) {
+      this.player.velocity.set(activeSave.velocity.x, activeSave.velocity.y, activeSave.velocity.z);
+      this.player.body.velocity.copy(this.player.velocity);
+    }
     this.player.upgrades = this.upgrades;
     this.player.displayName = displayName;
     this.scene.add(this.player.mesh);
@@ -256,11 +316,15 @@ export class Game {
     this.world.preloadAround(startX, startZ, this.perf.chunkViewDistance >= 3 ? 2 : 1);
     this.life.spawnStarter(startX, startZ, h);
     this.activities.spawnWorldContent(startX, startZ, h);
+    this.dungeons.spawnStarterDungeons(startX, startZ, h);
 
     this.spawnStarterChest(startX + 8, startZ + 5, h);
+    this.activities.loadFromSave(activeSave?.activities);
+    this.dungeons.loadFromSave(activeSave?.dungeons, h);
+    this.world.interactables.loadFromSave(activeSave?.interactables);
 
     this.audio.init(this.settings);
-    await this.audio.resume();
+    void this.audio.resume().catch(() => undefined);
 
     this.setupEvents();
     this.running = true;
@@ -315,7 +379,7 @@ export class Game {
 
   private setupEvents(): void {
     this.bus.on('enemy_killed', (enemy: unknown, loot: unknown) => {
-      const e = enemy as { name: string; tier: string; position: THREE.Vector3 };
+      const e = enemy as { name: string; tier: 'normal' | 'elite' | 'boss'; position: THREE.Vector3 };
       const items = loot as ItemInstance[];
       this.screenFx.showKillStreak(this.combat.killStreak);
       if (this.activities.arena.active) {
@@ -323,6 +387,8 @@ export class Game {
         if (this.upgrades.hasPerk('arena_heart')) this.player.heal(5);
       }
       if (this.activities.spire.active) this.activities.onSpireKill();
+      if (this.activities.rift.active) this.activities.onRiftKill();
+      this.registerRoamingEventKill(e.position);
       if (e.tier === 'boss') {
         this.camera.startBossCinematic(3);
         this.hud.showBossIntro(e.name);
@@ -438,11 +504,69 @@ export class Game {
     this.bus.on('spire_complete', (floor: unknown) => {
       const f = Number(floor);
       this.player.gold += f * 50;
-      this.hud.showInteractMessage(`Aether Spire conquered! Floor ${f} — +${f * 50} gold`);
+      this.hud.showInteractMessage(`Aether Spire conquered! Floor ${f} - +${f * 50} gold`);
+    });
+
+    this.bus.on('rift_start', (tier: unknown) => {
+      this.hud.showInteractMessage(`Aether Rift opened - Tier ${Number(tier) || 1}`);
+      this.particles.emitMagic(this.activities.rift.center, 0x88ccff);
+    });
+
+    this.bus.on('rift_complete', (tier: unknown) => {
+      const t = Number(tier) || 1;
+      const gold = 75 + t * 35;
+      this.player.gold += gold;
+      const reward = t >= 3
+        ? ItemGenerator.generate(this.player.level + t, 'legendary')
+        : ItemGenerator.generateAccessory(this.player.level + t, 'epic');
+      this.spawnLootDrop(this.activities.rift.center, reward);
+      this.hud.showInteractMessage(`Rift sealed! +${gold} gold and a reward drop.`);
+      this.particles.emitLevelUp(this.activities.rift.center);
     });
 
     this.bus.on('achievement_gold', (amt: unknown) => {
       this.player.gold += Number(amt) || 0;
+    });
+
+    this.bus.on('dungeon_trap', (name: unknown) => {
+      const damage = 10 + this.player.level * 1.5;
+      const actual = this.player.takeDamage(damage);
+      if (actual > 0) {
+        this.screenFx.flashDamage();
+        this.camera.punchZoom(3);
+        this.hud.showInteractMessage(`${String(name)} trap hit for ${Math.round(actual)} damage!`);
+      }
+    });
+
+    this.bus.on('boss_arena_opened', (name: unknown) => {
+      this.hud.showInteractMessage(`${String(name)} boss arena awakened.`);
+      this.audio.playBossRoar();
+    });
+
+    [
+      'quest_complete',
+      'campaign_complete',
+      'level_up',
+      'chest_opened',
+      'npc_talk',
+      'material_gathered',
+      'fish_caught',
+      'wildlife_hunted',
+      'item_crafted',
+      'ore_mined',
+      'treasure_dug',
+      'shrine_blessed',
+      'arena_wave',
+      'arena_complete',
+      'spire_floor',
+      'spire_complete',
+      'rift_start',
+      'rift_complete',
+      'dungeon_entered',
+      'secret_found',
+      'boss_arena_opened',
+    ].forEach((event) => {
+      this.bus.on(event, () => { this.saveTimer = 8; });
     });
   }
 
@@ -458,9 +582,10 @@ export class Game {
   }
 
   private notifyLootRarity(item: ItemInstance): void {
-    const idx = RARITIES.indexOf(item.rarity);
-    if (idx >= 5) this.bus.emit('loot_legendary');
-    if (idx >= 6) this.bus.emit('loot_mythic');
+    const rarity = normalizeRarity(item.rarity);
+    const idx = RARITIES.indexOf(rarity);
+    if (idx >= RARITIES.indexOf('legendary')) this.bus.emit('loot_legendary');
+    if (rarity === 'mythical') this.bus.emit('loot_mythical');
   }
 
   setPaused(paused: boolean): void {
@@ -471,8 +596,8 @@ export class Game {
   private spawnLootDrop(pos: THREE.Vector3, item: ItemInstance): void {
     const geo = new THREE.OctahedronGeometry(0.35, 0);
     const mat = new THREE.MeshStandardMaterial({
-      color: RARITY_COLORS[item.rarity],
-      emissive: RARITY_COLORS[item.rarity],
+      color: getRarityColor(item.rarity),
+      emissive: getRarityColor(item.rarity),
       emissiveIntensity: 0.5,
       flatShading: true,
     });
@@ -510,6 +635,7 @@ export class Game {
     this.hud.showInteractMessage(result.message);
     this.hud.renderLifePanel(this.life);
     this.audio.playLoot();
+    this.saveTimer = 8;
   }
 
   private tryUpgrade(type: 'attr' | 'perk', id: string): void {
@@ -530,6 +656,30 @@ export class Game {
     }
     this.hud.renderUpgradePanel(this.player, this.upgrades);
     this.audio.playLevelUp();
+    this.saveTimer = 8;
+  }
+
+  private rebindControl(action: ControlAction, code: string): void {
+    const bindings = normalizeKeyBindings(this.settings.keyBindings);
+    for (const id of Object.keys(bindings) as ControlAction[]) {
+      bindings[id] = bindings[id].filter((key) => key !== code);
+      if (bindings[id].length === 0) bindings[id] = ['Unassigned'];
+    }
+    bindings[action] = action === 'attack' && code !== 'Mouse0' ? ['Mouse0', code] : [code];
+    this.applyControlBindings(bindings);
+    this.hud.showInteractMessage(`Control updated: ${code.replace(/^Key|^Digit/, '')}`);
+  }
+
+  private resetControls(): void {
+    this.applyControlBindings(normalizeKeyBindings(DEFAULT_KEY_BINDINGS));
+    this.hud.showInteractMessage('Controls reset to defaults.');
+  }
+
+  private applyControlBindings(bindings: KeyBindings): void {
+    this.settings.keyBindings = normalizeKeyBindings(bindings);
+    SaveManager.saveSettings(this.settings);
+    this.input.setKeyBindings(this.settings.keyBindings);
+    this.hud.setControlBindings(this.settings.keyBindings);
   }
 
   private tryInteract(): void {
@@ -604,6 +754,344 @@ export class Game {
     }
   }
 
+  private toObjectiveWorldMarker(marker: { x: number; z: number } | null): { x: number; z: number } | null {
+    if (!marker) return null;
+    return {
+      x: marker.x + this.objectiveOrigin.x,
+      z: marker.z + this.objectiveOrigin.z,
+    };
+  }
+
+  private tryAutoStartObjective(
+    rawMarker: { x: number; z: number } | null,
+    worldMarker: { x: number; z: number } | null,
+    activeQuest: CampaignQuest | null,
+  ): void {
+    if (!rawMarker || !worldMarker || !activeQuest || this.objectiveArrivalCooldown > 0) return;
+    const objective = activeQuest.objectives.find((o) =>
+      !o.done && o.marker &&
+      Math.abs(o.marker.x - rawMarker.x) < 0.01 &&
+      Math.abs(o.marker.z - rawMarker.z) < 0.01,
+    );
+    if (!objective) return;
+
+    const dist = Math.hypot(this.player.position.x - worldMarker.x, this.player.position.z - worldMarker.z);
+    if (dist > this.getObjectiveArrivalRadius(objective.type)) return;
+
+    const key = `${activeQuest.id}:${objective.id}:${objective.current}`;
+    const pulseAction = (seconds: number, message: string) => {
+      this.autoObjectiveActionTimer = Math.max(this.autoObjectiveActionTimer, seconds);
+      this.objectiveArrivalCooldown = seconds + 0.35;
+      this.hud.showInteractMessage(message);
+    };
+
+    switch (objective.type) {
+      case 'talk':
+        this.tryInteract();
+        this.bus.emit('npc_talk', 'Captain Elara');
+        this.hud.showInteractMessage('Objective reached - conversation started.');
+        this.objectiveArrivalCooldown = 2.2;
+        break;
+      case 'chest':
+      case 'bless':
+        this.tryInteract();
+        this.objectiveArrivalCooldown = 2.2;
+        break;
+      case 'craft':
+        if (this.lastPassiveObjectiveKey !== key) {
+          this.hud.toggleLifePanel(true);
+          this.hud.showInteractMessage('Workbench reached - crafting panel opened.');
+          this.lastPassiveObjectiveKey = key;
+        }
+        this.objectiveArrivalCooldown = 6;
+        break;
+      case 'fish':
+        if (this.lastPassiveObjectiveKey !== key) {
+          this.bus.emit('fish_caught', 1);
+          this.particles.emitMagic(this.player.position, 0x66ccff);
+          this.lastPassiveObjectiveKey = key;
+        }
+        pulseAction(3.2, 'Fishing spot reached - casting line.');
+        break;
+      case 'mine':
+        if (this.lastPassiveObjectiveKey !== key) {
+          this.bus.emit('ore_mined', 1);
+          this.particles.emitMagic(this.player.position, 0xffaa66);
+          this.lastPassiveObjectiveKey = key;
+        }
+        pulseAction(2.7, 'Crystal vein reached - mining started.');
+        break;
+      case 'arena':
+        if (!this.activities.arena.active) {
+          this.activities.startArena();
+          this.bus.emit('arena_start');
+          this.hud.showInteractMessage('Arena objective reached - trial started.');
+        }
+        this.objectiveArrivalCooldown = 5;
+        break;
+      case 'visit_cave':
+      case 'visit_ruin':
+      case 'visit_shrine':
+        this.bus.emit(objective.type);
+        this.hud.showInteractMessage('Objective location discovered.');
+        this.objectiveArrivalCooldown = 2.5;
+        break;
+      case 'boss':
+        this.startBossObjective(worldMarker);
+        this.objectiveArrivalCooldown = 8;
+        break;
+      default:
+        pulseAction(1.2, 'Objective reached.');
+        break;
+    }
+  }
+
+  private getObjectiveArrivalRadius(type: CampaignObjective['type']): number {
+    if (type === 'arena' || type === 'boss') return 10;
+    if (type === 'fish' || type === 'mine') return 8;
+    if (type === 'visit_cave' || type === 'visit_ruin' || type === 'visit_shrine') return 8;
+    if (type === 'bless' || type === 'craft' || type === 'talk' || type === 'chest') return 7;
+    return 6;
+  }
+
+  private buildObjectiveGuide(
+    marker: { x: number; z: number } | null,
+    activeQuest: CampaignQuest | null,
+    activityPois: MapPOI[],
+  ): ObjectiveGuide {
+    const objective = activeQuest?.objectives.find((o) => !o.done) ?? null;
+    const action = objective ? this.getObjectiveActionText(objective.type) : 'Explore, loot, craft, and clear events';
+    const nearbyActivity = this.getNearestActivityGuide(activityPois);
+
+    if (!marker || !objective) {
+      return {
+        direction: marker ? 'Marked' : 'Open',
+        distance: marker ? 'on map' : 'worldwide',
+        action,
+        autoStart: this.getObjectiveStartText(objective?.type),
+        nearbyActivity,
+      };
+    }
+
+    const dx = marker.x - this.player.position.x;
+    const dz = marker.z - this.player.position.z;
+    const dist = Math.hypot(dx, dz);
+    const radius = this.getObjectiveArrivalRadius(objective.type);
+    return {
+      direction: this.getDirectionLabel(dx, dz),
+      distance: dist <= radius ? 'at objective' : `${Math.round(dist)}m`,
+      action,
+      autoStart: dist <= radius ? 'Starting now' : `Auto within ${radius}m`,
+      nearbyActivity,
+    };
+  }
+
+  private getObjectiveActionText(type: CampaignObjective['type']): string {
+    const actions: Partial<Record<CampaignObjective['type'], string>> = {
+      talk: 'Reach the NPC and talk',
+      chest: 'Open the marked chest',
+      fish: 'Reach water and hold F',
+      gather: 'Gather glowing resources',
+      mine: 'Reach crystals and hold F',
+      craft: 'Use the workbench',
+      arena: 'Enter the arena trial',
+      bless: 'Offer herbs at the shrine',
+      boss: 'Enter the boss arena',
+      visit_cave: 'Step into the cave',
+      visit_ruin: 'Explore the ruins',
+      visit_shrine: 'Reach the shrine',
+      weather_rain: 'Gather while it rains',
+      weather_snow: 'Fish during snowfall',
+      weather_storm: 'Survive a storm',
+      night_kill: 'Hunt enemies at night',
+      kill: 'Defeat enemies anywhere',
+      elite: 'Track elite foes',
+      level: 'Earn XP from activities',
+    };
+    return actions[type] ?? 'Follow the marker';
+  }
+
+  private getObjectiveStartText(type?: CampaignObjective['type']): string {
+    if (!type) return 'Choose any activity';
+    if (type === 'weather_rain' || type === 'weather_snow' || type === 'weather_storm') return 'Weather based';
+    if (type === 'kill' || type === 'elite' || type === 'level' || type === 'night_kill') return 'Progress anywhere';
+    return 'Auto at marker';
+  }
+
+  private getNearestActivityGuide(activityPois: MapPOI[]): string {
+    const labels: Partial<Record<MapPOI['type'], string>> = {
+      fish: 'Fishing',
+      gather: 'Gather',
+      wildlife: 'Hunt',
+      chest: 'Treasure',
+      puzzle: 'Rift trial',
+      mountain: 'Spire',
+      ruin: 'Arena',
+      cave: 'Cave',
+      dungeon: 'Dungeon',
+      boss: 'World event',
+      shrine: 'Shrine',
+    };
+    let best: { label: string; dx: number; dz: number; dist: number } | null = null;
+    for (const poi of activityPois) {
+      const label = labels[poi.type];
+      if (!label) continue;
+      const dx = poi.x - this.player.position.x;
+      const dz = poi.z - this.player.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 3) continue;
+      if (!best || dist < best.dist) best = { label, dx, dz, dist };
+    }
+    if (!best) return 'Explore for events';
+    return `${best.label} ${this.getDirectionLabel(best.dx, best.dz)} ${Math.round(best.dist)}m`;
+  }
+
+  private getDirectionLabel(dx: number, dz: number): string {
+    const labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    const angle = Math.atan2(dx, -dz);
+    const index = Math.round(angle / (Math.PI / 4) + labels.length) % labels.length;
+    return labels[index];
+  }
+
+  private startBossObjective(marker: { x: number; z: number }): void {
+    const activeBoss = this.enemyManager.getAlive().some((e) =>
+      e.tier === 'boss' && Math.hypot(e.position.x - marker.x, e.position.z - marker.z) < 40,
+    );
+    if (activeBoss || this.bossObjectiveSpawned) return;
+    const y = this.world.getHeightAt(marker.x, marker.z);
+    const boss = this.enemyManager.spawn(
+      'corrupted_titan',
+      marker.x,
+      marker.z,
+      y,
+      Math.max(this.player.level + 4, 8),
+    );
+    this.bossObjectiveSpawned = true;
+    this.hud.showBossIntro(boss.name);
+    this.hud.showInteractMessage('Crown Peak awakens - boss event started.');
+    this.particles.emitMagic(boss.position, 0xff3366);
+    this.camera.startBossCinematic(2);
+    this.audio.playBossRoar();
+  }
+
+  private updateRoamingEvent(dt: number, h: (x: number, z: number) => number): void {
+    if (!this.roamingEvent) {
+      this.roamingEventTimer -= dt;
+      if (this.roamingEventTimer <= 0) this.spawnRoamingEvent(h);
+      return;
+    }
+
+    const event = this.roamingEvent;
+    if (event.state === 'cooldown') {
+      event.timer -= dt;
+      if (event.timer <= 0) {
+        this.roamingEvent = null;
+        this.roamingEventTimer = 38 + Math.random() * 35;
+      }
+      return;
+    }
+
+    const dist = Math.hypot(
+      event.center.x - this.player.position.x,
+      event.center.z - this.player.position.z,
+    );
+    if (event.state === 'available' && dist < 10) {
+      event.state = 'active';
+      event.timer = 70;
+      event.spawnCooldown = 0.1;
+      this.hud.showInteractMessage(`${event.title} started - clear the enemies!`);
+      this.particles.emitMagic(event.center, 0xff66cc);
+    }
+
+    if (event.state !== 'active') return;
+    event.timer = Math.max(0, event.timer - dt);
+    event.spawnCooldown -= dt;
+    if (event.spawnCooldown <= 0 && event.spawned < event.targetKills) {
+      event.spawnCooldown = 0.8 + Math.random() * 0.8;
+      event.spawned++;
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 4 + Math.random() * 6;
+      const sx = event.center.x + Math.cos(angle) * radius;
+      const sz = event.center.z + Math.sin(angle) * radius;
+      const pool = event.spawned === event.targetKills && this.player.level >= 6
+        ? ['mage', 'dungeon_golem', 'arcane_sentinel']
+        : ['void_spawn', 'goblin', 'skeleton', 'spider', 'zombie'];
+      const type = pool[Math.floor(Math.random() * pool.length)];
+      this.enemyManager.spawn(type, sx, sz, h(sx, sz), this.player.level + Math.floor(event.spawned / 2));
+    }
+
+    if (event.kills >= event.targetKills && !event.rewardGiven) {
+      this.completeRoamingEvent(event);
+    } else if (event.timer <= 0 && event.spawned >= event.targetKills && event.kills > 0) {
+      this.hud.showInteractMessage(`${event.title} remains active - finish the remaining enemies.`);
+      event.timer = 35;
+    }
+  }
+
+  private spawnRoamingEvent(h: (x: number, z: number) => number): void {
+    if (this.activities.arena.active || this.activities.spire.active || this.activities.rift.active) {
+      this.roamingEventTimer = 30;
+      return;
+    }
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 34 + Math.random() * 38;
+    const x = this.player.position.x + Math.cos(angle) * dist;
+    const z = this.player.position.z + Math.sin(angle) * dist;
+    const titles = ['Lost Cache', 'Void Skirmish', 'Relic Disturbance', 'Wandering Threat'];
+    const title = titles[Math.floor(Math.random() * titles.length)];
+    this.roamingEvent = {
+      id: `event_${Date.now().toString(36)}`,
+      title,
+      state: 'available',
+      center: new THREE.Vector3(x, h(x, z), z),
+      targetKills: 4 + Math.min(5, Math.floor(this.player.level / 3)) + Math.floor(Math.random() * 2),
+      kills: 0,
+      spawned: 0,
+      spawnCooldown: 0,
+      timer: 120,
+      rewardGiven: false,
+    };
+    this.hud.showInteractMessage(`${title} discovered - follow the map marker.`);
+    this.particles.emitMagic(this.roamingEvent.center, 0x00ffcc);
+  }
+
+  private registerRoamingEventKill(position: THREE.Vector3): void {
+    const event = this.roamingEvent;
+    if (!event || event.state !== 'active') return;
+    const dist = Math.hypot(position.x - event.center.x, position.z - event.center.z);
+    if (dist > 28) return;
+    event.kills = Math.min(event.targetKills, event.kills + 1);
+    if (event.kills < event.targetKills) {
+      this.hud.showInteractMessage(`${event.title}: ${event.kills}/${event.targetKills} cleared`);
+    }
+  }
+
+  private completeRoamingEvent(event: RoamingWorldEvent): void {
+    event.rewardGiven = true;
+    event.state = 'cooldown';
+    event.timer = 4;
+    const gold = 45 + this.player.level * 9;
+    this.player.gold += gold;
+    this.life.materials = addMaterial(this.life.materials, 'ancient_relic', 1);
+    const reward = ItemGenerator.generate(this.player.level + 1, this.player.level >= 10 ? 'epic' : 'rare');
+    this.spawnLootDrop(event.center, reward);
+    this.hud.showInteractMessage(`${event.title} cleared! +${gold} gold, relic, and loot.`);
+    this.particles.emitLevelUp(event.center);
+    this.audio.playQuestComplete();
+  }
+
+  private getRoamingEventPOI(): MapPOI | null {
+    if (!this.roamingEvent || this.roamingEvent.state === 'cooldown') return null;
+    return {
+      type: this.roamingEvent.state === 'active' ? 'boss' : 'puzzle',
+      x: this.roamingEvent.center.x,
+      z: this.roamingEvent.center.z,
+      meta: this.roamingEvent.state === 'active'
+        ? `${this.roamingEvent.title} ${this.roamingEvent.kills}/${this.roamingEvent.targetKills}`
+        : this.roamingEvent.title,
+    };
+  }
+
   private animate = (): void => {
     if (!this.running) return;
     requestAnimationFrame(this.animate);
@@ -617,6 +1105,8 @@ export class Game {
     dt *= this.combat.timeScale;
     this.playTime += dt;
     if (this.interactCooldown > 0) this.interactCooldown -= dt;
+    if (this.objectiveArrivalCooldown > 0) this.objectiveArrivalCooldown -= dt;
+    if (this.autoObjectiveActionTimer > 0) this.autoObjectiveActionTimer -= dt;
 
     const input = this.input.poll();
     if (input.pause) {
@@ -634,7 +1124,7 @@ export class Game {
       this.postFX.setBiomeGrade(biome.groundColor, biome.fogColor);
     }
     this.fogColor.setHex(biome.fogColor);
-    this.postFX.setFogColor(this.fogColor, 0.08);
+    this.postFX.setFogColor(this.fogColor, 0.018);
 
     const h = (x: number, z: number) => this.world.getHeightAt(x, z);
 
@@ -670,14 +1160,23 @@ export class Game {
     if (input.vault && this.player.vaultLeap()) {
       this.particles.emitMagic(this.player.position, 0x88ffcc);
     }
+    if (input.inventoryPanel) this.hud.toggleInventory();
+    if (input.journalPanel) this.hud.toggleJournal();
+    if (input.worldMapPanel) this.hud.toggleWorldMap();
+    if (input.craftPanel) this.hud.toggleLifePanel();
     if (input.upgradePanel) this.hud.toggleUpgradePanel();
     if (input.interact) this.tryInteract();
+    const rawQuestMarker = this.story.getQuestMarker();
+    const questMarker = this.toObjectiveWorldMarker(rawQuestMarker);
+    const activeQuest = this.story.getActiveQuest();
+    this.tryAutoStartObjective(rawQuestMarker, questMarker, activeQuest);
+    const objectiveAutoAction = this.autoObjectiveActionTimer > 0;
     const actUpdate = this.activities.update(
       dt,
       this.player.position.x,
       this.player.position.z,
       h,
-      input.action,
+      input.action || objectiveAutoAction,
       this.player.level,
     );
     const lifeUpdate = this.life.update(
@@ -686,9 +1185,20 @@ export class Game {
       this.player.position.z,
       h,
       this.dayNight.isNight(),
-      input.action,
+      input.action || objectiveAutoAction,
       weatherPlay.fishingBonus,
     );
+    const dungeonUpdate = this.dungeons.update(
+      dt,
+      this.player.position,
+      h,
+      input.interact || input.action || objectiveAutoAction,
+      this.player.level,
+    );
+    for (const req of dungeonUpdate.spawnRequests) {
+      this.enemyManager.spawn(req.type, req.x, req.z, h(req.x, req.z), this.player.level + req.levelBoost);
+    }
+    this.updateRoamingEvent(dt, h);
     if (input.attack) {
       const huntMsg = this.life.tryHuntOnAttack(this.player.position.x, this.player.position.z);
       if (huntMsg) this.hud.showInteractMessage(huntMsg);
@@ -730,6 +1240,23 @@ export class Game {
         const type = this.activities.spire.floor >= 5 ? 'void_abomination' : 'void_spawn';
         this.enemyManager.spawn(type, sx, sz, h(sx, sz), this.player.level + this.activities.spire.floor * 2);
         this.activities.spire.enemiesToSpawn--;
+      }
+    }
+    if (this.activities.rift.active) {
+      const alive = this.enemyManager.getAlive().length;
+      if (alive < 4 && this.activities.rift.enemiesToSpawn > 0) {
+        const c = this.activities.rift.center;
+        const angle = Math.random() * Math.PI * 2;
+        const sx = c.x + Math.cos(angle) * (5 + Math.random() * 5);
+        const sz = c.z + Math.sin(angle) * (5 + Math.random() * 5);
+        const pool = this.activities.rift.tier >= 3
+          ? ['void_abomination', 'mage', 'dungeon_golem']
+          : this.activities.rift.tier >= 2
+            ? ['skeleton', 'zombie', 'mage', 'spider']
+            : ['goblin', 'skeleton', 'spider'];
+        const type = pool[Math.floor(Math.random() * pool.length)];
+        this.enemyManager.spawn(type, sx, sz, h(sx, sz), this.player.level + this.activities.rift.tier);
+        this.activities.rift.enemiesToSpawn--;
       }
     }
 
@@ -785,12 +1312,23 @@ export class Game {
     const weatherDarken = this.weather.getSkyDarken();
     this.skyColor.copy(this.dayNight.getSkyColor())
       .lerp(new THREE.Color(biome.fogColor), 0.2)
-      .lerp(new THREE.Color(0x0a0a12), weatherDarken);
+      .lerp(new THREE.Color(0x24354f), weatherDarken * 0.25);
     this.scene.background = this.skyColor;
+    this.playerLantern.position.set(
+      this.player.position.x,
+      this.player.position.y + 4.5,
+      this.player.position.z,
+    );
+    this.visibilityFill.intensity = 0.95 + this.nightFactor * 0.38 + weatherDarken * 0.24;
+    this.playerLantern.intensity = 1.45 + this.nightFactor * 2.1 + weatherDarken * 0.85;
+    this.playerLantern.distance = 36 + this.nightFactor * 14 + weatherDarken * 8;
     const visMult = wPlay.visibility;
-    this.sceneFog.density = biome.fogDensity * this.weather.getFogMultiplier() * 0.45 * (2 - visMult);
-    this.sceneFog.color.copy(this.dayNight.getFogColor()).lerp(this.fogColor.setHex(biome.fogColor), 0.35);
-    this.postFX.setFogColor(this.sceneFog.color, 0.08);
+    this.sceneFog.density = Math.min(
+      0.009,
+      biome.fogDensity * this.weather.getFogMultiplier() * 0.12 * Math.max(0.35, 1.35 - visMult),
+    );
+    this.sceneFog.color.copy(this.dayNight.getFogColor()).lerp(this.fogColor.setHex(biome.fogColor), 0.28);
+    this.postFX.setFogColor(this.sceneFog.color, 0.018);
     this.hud.updateTimeDisplay(this.dayNight.getClockString(), this.dayNight.getPeriod());
     const wClass = `w-${this.weather.current.replace(/_/g, '-')}`;
     this.hud.updateWeatherDisplay(wPlay.icon, wPlay.label, wClass);
@@ -819,18 +1357,24 @@ export class Game {
     );
     const baseHint = nearShrine ? 'Press E to bless shrine (2 herbs)'
       : nearChest || nearNpc ? 'Press E to interact' : '';
-    const actionHint = actUpdate.hint || lifeUpdate.hint;
+    const actionHint = dungeonUpdate.hint || actUpdate.hint || lifeUpdate.hint;
     this.hud.setActionHint(baseHint, actionHint);
     const actPct = Math.max(actUpdate.miningPct, lifeUpdate.fishingPct);
     const actLabel = actUpdate.miningPct > 0 ? 'Mining' : lifeUpdate.fishingPct > 0 ? 'Fishing' : '';
     this.hud.updateLifeHud(this.life, actPct, actLabel, this.upgrades.getActiveBuffLabels());
     this.screenFx.setLowHealth(this.player.health / this.player.maxHealth < 0.25);
 
-    const lifePois = [...this.life.getMapPOIs(), ...this.activities.getMapPOIs()];
+    const roamingPoi = this.getRoamingEventPOI();
+    const lifePois = [
+      ...this.life.getMapPOIs(),
+      ...this.activities.getMapPOIs(),
+      ...dungeonUpdate.pois,
+      ...(roamingPoi ? [roamingPoi] : []),
+    ];
     const mapData = this.world.getMinimapSnapshot(
       this.player.position.x,
       this.player.position.z,
-      this.story.getQuestMarker(),
+      questMarker,
       this.enemyManager.getAlive().map((e) => ({
         type: 'enemy' as const,
         x: e.position.x,
@@ -843,9 +1387,11 @@ export class Game {
       ? this.world.getWorldMapSnapshot(
         mapReq.centerX,
         mapReq.centerZ,
+        this.player.position.x,
+        this.player.position.z,
         mapReq.range,
         mapReq.step,
-        this.story.getQuestMarker(),
+        questMarker,
         this.enemyManager.getAlive().map((e) => ({
           type: 'enemy' as const,
           x: e.position.x,
@@ -855,8 +1401,6 @@ export class Game {
       )
       : undefined;
 
-    const questMarker = this.story.getQuestMarker();
-    const activeQuest = this.story.getActiveQuest();
     this.questBeacon.setTarget(
       questMarker?.x ?? 0,
       questMarker?.z ?? 0,
@@ -883,7 +1427,7 @@ export class Game {
     }
 
     this.hud.update(this.player, biome, mapData, worldMapData);
-    this.hud.setStoryTracker(this.story.getHudSummary());
+    this.hud.setStoryTracker(this.story.getHudSummary(), this.buildObjectiveGuide(questMarker, activeQuest, lifePois));
 
     this.camera.setTarget(this.player.position);
     this.camera.setScreenShake(this.combat.screenShake);
@@ -898,6 +1442,7 @@ export class Game {
     };
     this.damageNumbers.setProjector(projector);
     this.nameplates?.setProjector(projector);
+    this.nameplates?.syncEnemies(this.enemyManager.getAlive(), this.player.position);
     this.nameplates?.update();
 
     const musicCtx = this.buildMusicContext(biome.musicMood);
@@ -912,7 +1457,7 @@ export class Game {
     this.postFX.render(this.scene, this.camera.getCamera(), this.clock.elapsedTime);
 
     this.saveTimer += dt;
-    if (this.saveTimer >= 30) {
+    if (this.saveTimer >= 8) {
       this.saveTimer = 0;
       this.autoSave();
     }
@@ -964,6 +1509,18 @@ export class Game {
     if (skill.type === 'ultimate') this.camera.startBossCinematic(1.5);
   }
 
+  private restorePlayerVitals(save: PlayerSaveData): void {
+    const armorBonus = save.equipped?.armor ? 8 + (save.equipped.armor.level ?? 0) : 0;
+    this.player.maxHealth = save.maxHealth ?? 80 + this.player.attributes.vit * 8 + armorBonus;
+    this.player.maxMana = save.maxMana ?? 50 + this.player.attributes.int * 6;
+    this.player.health = save.health != null
+      ? Math.min(this.player.maxHealth, Math.max(1, save.health))
+      : this.player.maxHealth;
+    this.player.mana = save.mana != null
+      ? Math.min(this.player.maxMana, Math.max(0, save.mana))
+      : this.player.maxMana;
+  }
+
   private updateLootDrops(dt: number): void {
     for (let i = this.lootDrops.length - 1; i >= 0; i--) {
       const drop = this.lootDrops[i];
@@ -995,6 +1552,8 @@ export class Game {
 
   private autoSave(): void {
     const data: PlayerSaveData = {
+      saveVersion: 2,
+      savedAt: Date.now(),
       name: this.displayName,
       classId: this.player.classId,
       level: this.player.level,
@@ -1004,15 +1563,27 @@ export class Game {
       skillPoints: this.player.skillPoints,
       unlockedSkills: [],
       position: { x: this.player.position.x, y: this.player.position.y, z: this.player.position.z },
+      velocity: { x: this.player.velocity.x, y: this.player.velocity.y, z: this.player.velocity.z },
+      rotation: this.player.rotation,
       worldSeed: this.worldSeed,
       inventory: this.player.inventory,
       equipped: this.player.equipped,
+      health: this.player.health,
+      maxHealth: this.player.maxHealth,
+      mana: this.player.mana,
+      maxMana: this.player.maxMana,
+      deaths: this.player.deaths,
       gold: this.player.gold,
       playTimeSeconds: this.playTime,
       achievements: this.achievements.export(),
+      achievementState: this.achievements.toSave(),
       cosmetics: {},
+      story: this.story.toSave(),
       lifeSkills: this.life.toSave(),
       upgrades: this.upgrades.toSave(),
+      activities: this.activities.toSave(),
+      dungeons: this.dungeons.toSave(),
+      interactables: this.world.interactables.toSave(),
       dayTime: this.dayNight.time,
     };
     SaveManager.savePlayer(data);
@@ -1070,7 +1641,16 @@ export class Game {
     void this.audio.resume();
   }
 
+  saveNow(): void {
+    if (
+      !this.player || !this.story || !this.life || !this.activities || !this.dungeons ||
+      !this.world || !this.dayNight || !this.upgrades || !this.achievements
+    ) return;
+    this.autoSave();
+  }
+
   dispose(): void {
+    this.saveNow();
     this.running = false;
     network.disconnect();
     this.remotes?.dispose();
@@ -1078,6 +1658,9 @@ export class Game {
     this.world?.dispose();
     this.life?.worldLife.dispose();
     this.activities?.dispose();
+    this.dungeons?.dispose();
+    this.scene.remove(this.visibilityFill);
+    this.scene.remove(this.playerLantern);
     this.weather?.dispose();
     this.ambientLife?.dispose();
     this.questBeacon?.dispose();

@@ -27,6 +27,7 @@ export class LifeSkillsManager {
   private fishingSpotId: string | null = null;
   private actionCooldown = 0;
   private wildlifeSpawnTimer = 0;
+  private contentPulseTimer = 8;
 
   constructor(
     private scene: import('three').Scene,
@@ -69,6 +70,11 @@ export class LifeSkillsManager {
   ): { hint: string; fishingPct: number } {
     if (this.actionCooldown > 0) this.actionCooldown -= dt;
     this.worldLife.update(dt, px, pz, getHeight);
+    this.contentPulseTimer -= dt;
+    if (this.contentPulseTimer <= 0) {
+      this.contentPulseTimer = 18 + Math.random() * 10;
+      this.worldLife.ensureNearbyContent(px, pz, getHeight);
+    }
 
     let hint = '';
     let fishingPct = 0;

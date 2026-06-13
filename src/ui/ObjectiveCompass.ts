@@ -27,10 +27,18 @@ export class ObjectiveCompass {
     const dist = Math.hypot(dx, dz);
     const angle = Math.atan2(dx, dz) - camYaw;
     const deg = (angle * 180) / Math.PI;
+    const direction = getDirectionLabel(dx, dz);
 
     this.el.classList.add('active');
     this.el.style.setProperty('--compass-rot', `${deg}deg`);
     this.label.textContent = questTitle ?? 'Objective';
-    this.dist.textContent = dist > 80 ? `${Math.round(dist)}m` : dist > 20 ? `${Math.round(dist)}m` : 'Near';
+    this.dist.textContent = dist > 20 ? `${direction} ${Math.round(dist)}m` : `${direction} Near`;
   }
+}
+
+function getDirectionLabel(dx: number, dz: number): string {
+  const labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const angle = Math.atan2(dx, -dz);
+  const index = Math.round(angle / (Math.PI / 4) + labels.length) % labels.length;
+  return labels[index];
 }

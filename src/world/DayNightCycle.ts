@@ -4,7 +4,7 @@ import { clamp } from '../utils/math';
 export type TimePeriod = 'dawn' | 'day' | 'dusk' | 'night';
 
 export class DayNightCycle {
-  time = 0.28;
+  time = 0.34;
   readonly cycleDuration = 420;
 
   private sun: THREE.DirectionalLight;
@@ -24,9 +24,9 @@ export class DayNightCycle {
     shadowMapSize = 1024,
     shadowsEnabled = true,
   ) {
-    this.ambient = new THREE.AmbientLight(biomeAmbient, 0.45);
-    this.hemisphere = new THREE.HemisphereLight(0x88aacc, 0x332211, 0.35);
-    this.sun = new THREE.DirectionalLight(biomeSun, 1.2);
+    this.ambient = new THREE.AmbientLight(biomeAmbient, 0.78);
+    this.hemisphere = new THREE.HemisphereLight(0xb8d7f5, 0x66513c, 0.68);
+    this.sun = new THREE.DirectionalLight(biomeSun, 1.55);
     this.sun.castShadow = shadowsEnabled;
     this.sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
     this.sun.shadow.camera.near = 1;
@@ -59,22 +59,22 @@ export class DayNightCycle {
     this.time = (this.time + dt / this.cycleDuration) % 1;
     const sunAngle = this.time * Math.PI * 2;
     const rawDay = Math.sin(sunAngle) * 0.5 + 0.5;
-    const dayFactor = clamp(0.22 + rawDay * 0.78, 0.22, 1);
+    const dayFactor = clamp(0.42 + rawDay * 0.58, 0.42, 1);
     const nightFactor = 1 - dayFactor;
 
     const sunX = Math.cos(sunAngle) * 55;
     const sunY = Math.sin(sunAngle) * 42 + 12;
     const sunZ = Math.sin(sunAngle * 0.5) * 32;
     this.sun.position.set(sunX, sunY, sunZ);
-    this.sun.intensity = 0.3 + dayFactor * 1.35;
-    this.ambient.intensity = 0.32 + dayFactor * 0.55;
-    this.hemisphere.intensity = 0.28 + dayFactor * 0.45;
+    this.sun.intensity = 0.62 + dayFactor * 1.45;
+    this.ambient.intensity = 0.72 + dayFactor * 0.42;
+    this.hemisphere.intensity = 0.62 + dayFactor * 0.38;
 
     const moonX = -Math.cos(sunAngle) * 48;
     const moonY = Math.max(10, -Math.sin(sunAngle) * 38 + 20);
     const moonZ = -Math.sin(sunAngle * 0.5) * 28;
     this.moon.position.set(moonX, moonY, moonZ);
-    this.moon.intensity = nightFactor * 0.42;
+    this.moon.intensity = 0.38 + nightFactor * 0.58;
 
     // Celestial billboards follow sun/moon
     this.sunMesh.position.set(sunX * 0.85, Math.max(sunY, 8), sunZ * 0.85);
@@ -85,18 +85,18 @@ export class DayNightCycle {
     const dawn = new THREE.Color(0xf0a878);
     const daySky = new THREE.Color(0x5a98d8);
     const dusk = new THREE.Color(0xc87858);
-    const nightSky = new THREE.Color(0x0e1428);
+    const nightSky = new THREE.Color(0x253456);
 
     if (rawDay > 0.62) this.skyTint.copy(daySky);
     else if (rawDay > 0.38) this.skyTint.copy(daySky).lerp(dawn, (0.62 - rawDay) / 0.24);
     else if (rawDay > 0.18) this.skyTint.copy(dusk).lerp(dawn, (rawDay - 0.18) / 0.2);
     else this.skyTint.copy(nightSky).lerp(dusk, rawDay / 0.18);
 
-    this.fogTint.copy(this.skyTint).lerp(new THREE.Color(0x080c18), nightFactor * 0.4);
+    this.fogTint.copy(this.skyTint).lerp(new THREE.Color(0x26344f), nightFactor * 0.1);
 
     // Warm/cool hemisphere shift
-    this.hemisphere.color.setHex(dayFactor > 0.4 ? 0x88bbee : 0x334466);
-    this.hemisphere.groundColor.setHex(dayFactor > 0.4 ? 0x443322 : 0x1a1520);
+    this.hemisphere.color.setHex(dayFactor > 0.4 ? 0xb8d7f5 : 0x829bcc);
+    this.hemisphere.groundColor.setHex(dayFactor > 0.4 ? 0x66513c : 0x4b4056);
 
     return dayFactor;
   }
@@ -132,7 +132,7 @@ export class DayNightCycle {
   getNightFactor(): number {
     const sunAngle = this.time * Math.PI * 2;
     const rawDay = Math.sin(sunAngle) * 0.5 + 0.5;
-    return 1 - clamp(0.22 + rawDay * 0.78, 0.22, 1);
+    return 1 - clamp(0.42 + rawDay * 0.58, 0.42, 1);
   }
 
   getClockString(): string {

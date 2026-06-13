@@ -36,21 +36,19 @@ if (!classId || !CLASS_IDS.includes(classId) || !displayName || displayName.leng
     game.setPaused(true);
   });
 
-  document.getElementById('btn-inventory')?.addEventListener('click', () => {
-    document.getElementById('inventory-panel')?.classList.toggle('open');
-  });
-
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyI') {
-      document.getElementById('inventory-panel')?.classList.toggle('open');
-    }
-  });
-
   const unlockAudio = () => game.unlockAudio();
   document.addEventListener('touchstart', unlockAudio, { once: true, passive: true });
   document.addEventListener('click', unlockAudio, { once: true });
 
   game.start(classId, displayName, { online, serverUrl }).catch(console.error);
 
-  window.addEventListener('beforeunload', () => game.dispose());
+  const persistProgress = () => game.saveNow();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') persistProgress();
+  });
+  window.addEventListener('pagehide', persistProgress);
+  window.addEventListener('beforeunload', () => {
+    game.saveNow();
+    game.dispose();
+  });
 }

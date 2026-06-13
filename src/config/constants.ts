@@ -1,4 +1,4 @@
-/** Aetherfall Chronicles — global constants. Developed by n1ckar */
+/** Aetherfall Chronicles global constants. Developed by n1ckar */
 
 export const GAME_TITLE = 'Aetherfall Chronicles';
 export const DEVELOPER_CREDIT = 'Developed by n1ckar';
@@ -23,38 +23,39 @@ export const HIT_STOP_HEAVY = 0.09;
 
 export const RARITIES = [
   'common',
-  'magic',
   'rare',
   'epic',
   'legendary',
-  'mythic',
-  'ancient',
-  'divine',
+  'mythical',
 ] as const;
 
 export type Rarity = (typeof RARITIES)[number];
 
 export const RARITY_COLORS: Record<Rarity, string> = {
   common: '#b8b4a8',
-  magic: '#4a9eff',
-  rare: '#ffd700',
+  rare: '#4a9eff',
   epic: '#a855f7',
   legendary: '#ff8c00',
-  mythic: '#ff3366',
-  ancient: '#00e5cc',
-  divine: '#fff5a0',
+  mythical: '#ff3366',
 };
 
 export const RARITY_WEIGHTS: Record<Rarity, number> = {
-  common: 50,
-  magic: 25,
-  rare: 12,
-  epic: 6,
-  legendary: 4,
-  mythic: 2,
-  ancient: 0.8,
-  divine: 0.2,
+  common: 58,
+  rare: 25,
+  epic: 11,
+  legendary: 4.5,
+  mythical: 1.5,
 };
+
+export function normalizeRarity(rarity: string): Rarity {
+  if (rarity === 'magic') return 'rare';
+  if (rarity === 'mythic' || rarity === 'ancient' || rarity === 'divine') return 'mythical';
+  return RARITIES.includes(rarity as Rarity) ? rarity as Rarity : 'common';
+}
+
+export function getRarityColor(rarity: string): string {
+  return RARITY_COLORS[normalizeRarity(rarity)];
+}
 
 export const BIOMES = [
   'forest',

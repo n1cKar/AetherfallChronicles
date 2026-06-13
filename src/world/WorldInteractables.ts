@@ -21,6 +21,14 @@ export interface NpcInstance {
   dialogue: string[];
 }
 
+export interface WorldInteractablesSave {
+  chests: {
+    id: string;
+    opened: boolean;
+    loot: ItemInstance[];
+  }[];
+}
+
 export class WorldInteractablesManager {
   chests: ChestInstance[] = [];
   npcs: NpcInstance[] = [];
@@ -84,12 +92,33 @@ export class WorldInteractablesManager {
       if (chest.opened) continue;
       if (chest.position.distanceTo(playerPos) < range) {
         chest.opened = true;
-        const lid = chest.mesh.userData.chestLid as THREE.Mesh;
-        if (lid) lid.rotation.x = -1.2;
+        this.applyChestVisual(chest);
         return chest;
       }
     }
     return null;
+  }
+
+  loadFromSave(data?: WorldInteractablesSave): void {
+    if (!data) return;
+    const savedChests = new Map(data.chests?.map((c) => [c.id, c]) ?? []);
+    for (const chest of this.chests) {
+      const saved = savedChests.get(chest.id);
+      if (!saved) continue;
+      chest.opened = Boolean(saved.opened);
+      chest.loot = saved.loot ?? chest.loot;
+      this.applyChestVisual(chest);
+    }
+  }
+
+  toSave(): WorldInteractablesSave {
+    return {
+      chests: this.chests.map((c) => ({
+        id: c.id,
+        opened: c.opened,
+        loot: c.loot,
+      })),
+    };
   }
 
   tryTalkNpc(playerPos: THREE.Vector3, range = 3): NpcInstance | null {
@@ -120,5 +149,10 @@ export class WorldInteractablesManager {
     this.chests = [];
     this.npcs = [];
     this.shrines = [];
+  }
+
+  private applyChestVisual(chest: ChestInstance): void {
+    const lid = chest.mesh.userData.chestLid as THREE.Mesh | undefined;
+    if (lid) lid.rotation.x = chest.opened ? -1.2 : 0;
   }
 }

@@ -6,34 +6,12 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#0a0c14" />
-  <meta name="description" content="Aetherfall Chronicles — endless low-poly fantasy ARPG. Developed by n1ckar" />
+  <meta name="description" content="Aetherfall Chronicles - voxel-inspired browser dungeon-crawling action RPG. Developed by n1ckar" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <title>Aetherfall Chronicles</title>
-  <link rel="stylesheet" href="/src/styles/global.css" />
-  <link rel="stylesheet" href="/src/styles/menu.css" />
 </head>
-<body class="splash-page">
-  <div class="splash-bg"></div>
-  <div class="splash-particles" id="splash-particles"></div>
-
-  <main class="splash-content">
-    <div class="logo-ring"></div>
-    <h1 class="game-title fantasy-title">Aetherfall Chronicles</h1>
-    <p class="tagline">Forge your legend — solo or in the shared online realm</p>
-
-    <div id="loading-bar" class="loading-bar">
-      <div id="loading-fill" class="loading-fill"></div>
-    </div>
-    <p id="loading-text" class="loading-text">Summoning the Aether...</p>
-
-    <nav id="main-menu" class="main-menu hidden">
-      <a href="/character-select.html" class="btn">Enter World</a>
-      <a href="/settings.html" class="btn btn-secondary">Settings</a>
-      <a href="/credits.html" class="btn btn-secondary">Credits</a>
-    </nav>
-  </main>
-
-  <footer class="credits-footer"><strong>Developed by n1ckar</strong></footer>
-
+<body>
+  <div id="splash-root"></div>
   <script type="module" src="/src/pages/splash.ts"></script>
 </body>
 </html>

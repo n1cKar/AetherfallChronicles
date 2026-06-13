@@ -41,17 +41,58 @@ export class WorldLifeEntities {
   spawnStarterContent(wx: number, wz: number, getHeight: (x: number, z: number) => number): void {
     this.spawnFishingSpot(wx + 18, wz - 8, getHeight);
     this.spawnFishingSpot(wx - 12, wz + 22, getHeight);
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
+    this.spawnFishingSpot(wx + 34, wz + 9, getHeight);
+    this.spawnFishingSpot(wx - 30, wz - 18, getHeight);
+    for (let i = 0; i < 14; i++) {
+      const angle = (i / 14) * Math.PI * 2;
       const dist = 14 + (i % 3) * 4;
       const gx = wx + Math.cos(angle) * dist;
       const gz = wz + Math.sin(angle) * dist;
       this.spawnGatherNode(gx, gz, getHeight, i % 3 === 0 ? 'ore' : i % 3 === 1 ? 'wood' : 'herb');
     }
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 7; i++) {
       const gx = wx + (Math.random() - 0.5) * 40;
       const gz = wz + (Math.random() - 0.5) * 40;
       this.spawnWildlife(gx, gz, getHeight, i % 2 === 0 ? 'deer' : 'boar');
+    }
+  }
+
+  ensureNearbyContent(px: number, pz: number, getHeight: (x: number, z: number) => number): void {
+    const nearbyGather = this.gatherNodes.filter((n) =>
+      n.amount > 0 && distance2D(n.position.x, n.position.z, px, pz) < 72,
+    ).length;
+    if (nearbyGather < 9 && this.gatherNodes.length < 56) {
+      for (let i = 0; i < 3; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 26 + Math.random() * 48;
+        const type = Math.random() < 0.5 ? 'herb' : Math.random() < 0.75 ? 'wood' : 'ore';
+        this.spawnGatherNode(px + Math.cos(angle) * dist, pz + Math.sin(angle) * dist, getHeight, type);
+      }
+    }
+
+    const nearbyFish = this.fishingSpots.filter((s) =>
+      s.active && distance2D(s.position.x, s.position.z, px, pz) < 95,
+    ).length;
+    if (nearbyFish < 3 && this.fishingSpots.length < 14) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 38 + Math.random() * 50;
+      this.spawnFishingSpot(px + Math.cos(angle) * dist, pz + Math.sin(angle) * dist, getHeight);
+    }
+
+    const nearbyWildlife = this.wildlife.filter((w) =>
+      w.alive && distance2D(w.position.x, w.position.z, px, pz) < 80,
+    ).length;
+    if (nearbyWildlife < 5 && this.wildlife.length < 28) {
+      for (let i = 0; i < 2; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 28 + Math.random() * 45;
+        this.spawnWildlife(
+          px + Math.cos(angle) * dist,
+          pz + Math.sin(angle) * dist,
+          getHeight,
+          Math.random() > 0.45 ? 'deer' : 'boar',
+        );
+      }
     }
   }
 
@@ -174,7 +215,7 @@ export class WorldLifeEntities {
   }
 
   getNearestFishing(px: number, pz: number, maxDist = 5): FishingSpot | null {
-    let best: FishingSpot | null;
+    let best: FishingSpot | null = null;
     let bestD = maxDist * maxDist;
     for (const s of this.fishingSpots) {
       if (!s.active) continue;
@@ -185,7 +226,7 @@ export class WorldLifeEntities {
   }
 
   getNearestGather(px: number, pz: number, maxDist = 3): GatherNode | null {
-    let best: GatherNode | null;
+    let best: GatherNode | null = null;
     let bestD = maxDist * maxDist;
     for (const n of this.gatherNodes) {
       if (n.amount <= 0) continue;
@@ -196,7 +237,7 @@ export class WorldLifeEntities {
   }
 
   getNearestWildlife(px: number, pz: number, maxDist = 3): Wildlife | null {
-    let best: Wildlife | null;
+    let best: Wildlife | null = null;
     let bestD = maxDist * maxDist;
     for (const w of this.wildlife) {
       if (!w.alive) continue;
